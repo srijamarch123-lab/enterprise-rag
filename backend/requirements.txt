@@ -74,7 +74,7 @@ orjson==3.11.9
 packaging==24.2
 passlib==1.7.4
 pdf2image==1.17.0
-pillow==10.3.0
+pillow==10.4.0
 portalocker==2.10.1
 propcache==0.5.2
 proto-plus==1.28.0
