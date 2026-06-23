@@ -122,6 +122,23 @@ class User(Base):
     )
 
 
+# ─── Password reset tokens ────────────────────────────────────────────────
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    user: Mapped["User"] = relationship("User")
+
+
 # ─── AuditLog ────────────────────────────────────────────────────────────────
 
 class AuditLog(Base):
@@ -140,3 +157,4 @@ class AuditLog(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     user: Mapped["User | None"] = relationship("User", back_populates="audit_logs")
+

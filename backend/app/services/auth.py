@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.config.settings import get_settings
 from app.database import get_db
-from app.models import User
+from app.models import User, PasswordResetToken
+
 
 settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -87,3 +88,24 @@ def require_role(*roles: str):
             )
         return user
     return _check
+
+
+# ─── Password reset ─────────────────────────────────────────────────────────
+
+import secrets
+
+
+def create_reset_token(user_id: int, db: Session) -> str:
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.utcnow() + timedelta(hours=1)
+
+    entry = PasswordResetToken(
+        user_id=user_id,
+        token=token,
+        expires_at=expires_at,
+        used=False,
+    )
+    db.add(entry)
+    db.commit()
+    return token
+

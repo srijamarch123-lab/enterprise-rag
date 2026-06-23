@@ -8,6 +8,7 @@ from app.routes.upload import router as upload_router
 from app.routes.chunks import router as chunks_router
 from app.routes.embeddings import router as embeddings_router
 from app.routes.auth import router as auth_router, users_router
+
 from app.routes.drive import router as drive_router
 
 app = FastAPI(
