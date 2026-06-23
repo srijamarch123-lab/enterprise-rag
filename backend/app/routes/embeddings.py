@@ -6,6 +6,7 @@ GET  /qdrant/stats
 POST /documents/{id}/reprocess
 """
 from fastapi import APIRouter, Depends, HTTPException
+from app.dependencies.rbac import require_manager_or_above, require_admin
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -21,7 +22,7 @@ from app.services.embedder import (
 router = APIRouter(prefix="/api", tags=["embeddings"])
 
 
-@router.post("/documents/{doc_id}/embed")
+@router.post("/documents/{doc_id}/embed", dependencies=[Depends(require_manager_or_above)])
 def embed_single(doc_id: int, db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
@@ -30,7 +31,7 @@ def embed_single(doc_id: int, db: Session = Depends(get_db)):
     return {"document_id": doc_id, **result}
 
 
-@router.post("/embed/all")
+@router.post("/embed/all", dependencies=[Depends(require_manager_or_above)])
 def embed_all(db: Session = Depends(get_db)):
     return embed_all_documents(db)
 
@@ -52,12 +53,12 @@ def embedding_status(doc_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/qdrant/stats")
+@router.get("/qdrant/stats", dependencies=[Depends(require_admin)])
 def qdrant_stats():
     return get_qdrant_stats()
 
 
-@router.post("/documents/{doc_id}/reprocess")
+@router.post("/documents/{doc_id}/reprocess", dependencies=[Depends(require_manager_or_above)])
 def reprocess(doc_id: int, db: Session = Depends(get_db)):
     try:
         result = reprocess_document(doc_id, db)

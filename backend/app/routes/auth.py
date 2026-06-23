@@ -7,11 +7,6 @@ GET  /api/auth/me
 
 POST /api/auth/reset-password/request
 POST /api/auth/reset-password/confirm
-
-Admin user management:
-GET  /api/users
-PUT  /api/users/{id}/role
-PUT  /api/users/{id}/disable
 """
 
 from datetime import datetime
@@ -28,12 +23,10 @@ from app.services.auth import (
     create_refresh_token,
     decode_token,
     get_current_user,
-    require_role,
     create_reset_token,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-users_router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
@@ -191,104 +184,4 @@ def reset_confirm(body: ResetConfirmBody, db: Session = Depends(get_db)):
     return {"message": "Password updated successfully"}
 
 
-# ─── Admin user management ────────────────────────────────────────────────
-
-
-@users_router.get("")
-def list_users(_: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
-    users = db.query(User).all()
-    return [
-        {
-            "id": u.id,
-            "email": u.email,
-            "full_name": u.full_name,
-            "role": u.role,
-            "is_active": u.is_active,
-            "last_login": u.last_login,
-        }
-        for u in users
-    ]
-
-
-@users_router.put("/{user_id}/role")
-def update_role(
-    user_id: int,
-    body: RoleUpdate,
-    admin: User = Depends(require_role("admin")),
-    db: Session = Depends(get_db),
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
-
-    old_role = user.role
-    user.role = body.role
-    user.token_version += 1  # invalidate existing tokens
-    db.commit()
-
-    _log(
-        db,
-        admin.id,
-        "role_change",
-        resource_type="user",
-        resource_id=str(user_id),
-        details={"from": old_role, "to": body.role},
-    )
-
-    return {"id": user_id, "role": user.role}
-
-
-@users_router.put("/{user_id}/disable")
-def disable_user(
-    user_id: int,
-    admin: User = Depends(require_role("admin")),
-    db: Session = Depends(get_db),
-):
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
-
-    user.is_active = False
-    user.token_version += 1
-    db.commit()
-
-    _log(
-        db,
-        admin.id,
-        "disable_user",
-        resource_type="user",
-        resource_id=str(user_id),
-    )
-
-    return {"id": user_id, "is_active": False}
-
-
-@users_router.put("/{user_id}/revoke")
-def revoke_role(
-    user_id: int,
-    admin: User = Depends(require_role("admin")),
-    db: Session = Depends(get_db),
-):
-    """
-    Revoke elevated access by setting user role back to default employee.
-    """
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(404, "User not found")
-
-    old_role = user.role
-    user.role = UserRole.employee
-    user.token_version += 1
-    db.commit()
-
-    _log(
-        db,
-        admin.id,
-        "role_revoke",
-        resource_type="user",
-        resource_id=str(user_id),
-        details={"from": old_role, "to": UserRole.employee},
-    )
-
-    return {"id": user_id, "role": user.role}
 
