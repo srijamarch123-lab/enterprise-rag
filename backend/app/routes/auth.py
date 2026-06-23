@@ -262,3 +262,33 @@ def disable_user(
 
     return {"id": user_id, "is_active": False}
 
+
+@users_router.put("/{user_id}/revoke")
+def revoke_role(
+    user_id: int,
+    admin: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """
+    Revoke elevated access by setting user role back to default employee.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    old_role = user.role
+    user.role = UserRole.employee
+    user.token_version += 1
+    db.commit()
+
+    _log(
+        db,
+        admin.id,
+        "role_revoke",
+        resource_type="user",
+        resource_id=str(user_id),
+        details={"from": old_role, "to": UserRole.employee},
+    )
+
+    return {"id": user_id, "role": user.role}
+

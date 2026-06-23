@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from fastembed import TextEmbedding
 
 
-from app.models import Chunk, Document, DocumentStatus
+from app.models import Chunk, Document, DocumentStatus, AccessLevel, UserRole
 from app.config.settings import get_settings
 
 settings = get_settings()
@@ -36,6 +36,23 @@ def check_already_embedded(document_id: int, db: Session) -> bool:
         return False
     return all(c.is_embedded for c in chunks)
 
+def _visible_roles_for_access_level(access_level: AccessLevel) -> list[str]:
+    """
+    Role visibility policy:
+    - public/internal -> admin, hr, manager, employee
+    - confidential -> admin, hr, manager
+    - restricted -> admin, hr
+    """
+    if access_level in (AccessLevel.public, AccessLevel.internal):
+        return [str(UserRole.admin), str(UserRole.hr), str(UserRole.manager), str(UserRole.employee)]
+    if access_level == AccessLevel.confidential:
+        return [str(UserRole.admin), str(UserRole.hr), str(UserRole.manager)]
+    if access_level == AccessLevel.restricted:
+        return [str(UserRole.admin), str(UserRole.hr)]
+    # fallback
+    return [str(UserRole.admin), str(UserRole.hr), str(UserRole.manager), str(UserRole.employee)]
+
+
 def embed_document(document: Document, db: Session) -> dict:
     if check_already_embedded(document.id, db):
         return {"skipped": True, "reason": "already embedded"}
@@ -56,6 +73,7 @@ def embed_document(document: Document, db: Session) -> dict:
     texts = [c.text for c in chunks]
     vectors = list(model.embed(texts))
 
+    visible_roles = _visible_roles_for_access_level(document.access_level)
     points = []
     for chunk, vector in zip(chunks, vectors):
         point_id = str(uuid.uuid4())
@@ -70,6 +88,7 @@ def embed_document(document: Document, db: Session) -> dict:
                     "page_number": chunk.page_number,
                     "department": document.department,
                     "access_level": document.access_level,
+                    "visible_roles": visible_roles,
                     "filename": document.original_filename,
                     "file_type": document.file_type,
                     "text_preview": chunk.text[:200],

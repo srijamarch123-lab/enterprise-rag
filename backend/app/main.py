@@ -10,6 +10,7 @@ from app.routes.embeddings import router as embeddings_router
 from app.routes.auth import router as auth_router, users_router
 
 from app.routes.drive import router as drive_router
+from app.routes.search import router as search_router
 
 app = FastAPI(
     title="Enterprise RAG API",
@@ -33,6 +34,7 @@ app.include_router(embeddings_router)
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(drive_router)
+app.include_router(search_router)
 
 # ─── Static files (optional, for serving frontend build) ─────────────────────
 static_dir = Path("static")
