@@ -1,9 +1,10 @@
-"""
+﻿"""
 JWT authentication + bcrypt password hashing.
+Uses bcrypt directly instead of passlib to avoid compatibility issues.
 """
 import secrets
 from datetime import datetime, timedelta
-from passlib.context import CryptContext
+import bcrypt as _bcrypt
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -15,53 +16,37 @@ from app.models import User, PasswordResetToken
 
 
 settings = get_settings()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer()
 
 
-# ─── Password ────────────────────────────────────────────────────────────────
-
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    return _bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
-
-# ─── Token ───────────────────────────────────────────────────────────────────
 
 def create_access_token(data: dict) -> str:
     payload = data.copy()
-    payload["exp"] = datetime.utcnow() + timedelta(
-        minutes=settings.jwt_access_token_expire_minutes
-    )
+    payload["exp"] = datetime.utcnow() + timedelta(minutes=settings.jwt_access_token_expire_minutes)
     payload["type"] = "access"
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def create_refresh_token(data: dict) -> str:
     payload = data.copy()
-    payload["exp"] = datetime.utcnow() + timedelta(
-        days=settings.jwt_refresh_token_expire_days
-    )
+    payload["exp"] = datetime.utcnow() + timedelta(days=settings.jwt_refresh_token_expire_days)
     payload["type"] = "refresh"
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_token(token: str) -> dict:
     try:
-        return jwt.decode(
-            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
-        )
+        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
     except JWTError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {e}",
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
 
-
-# ─── Dependencies ─────────────────────────────────────────────────────────────
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -70,23 +55,18 @@ def get_current_user(
     payload = decode_token(credentials.credentials)
     user_id: int = payload.get("sub")
     token_version: int = payload.get("tv", 0)
-
-    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()  # noqa: E712
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     if user.token_version != token_version:
-        raise HTTPException(status_code=401, detail="Token invalidated — please log in again")
+        raise HTTPException(status_code=401, detail="Token invalidated - please log in again")
     return user
 
 
 def require_role(*roles: str):
-    """FastAPI dependency factory for RBAC."""
     def _check(user: User = Depends(get_current_user)):
         if user.role not in roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Required role: {roles}. Your role: {user.role}",
-            )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Required role: {roles}. Your role: {user.role}")
         return user
     return _check
 
