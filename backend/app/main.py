@@ -7,7 +7,8 @@ from app.database import init_db
 from app.routes.upload import router as upload_router
 from app.routes.chunks import router as chunks_router
 from app.routes.embeddings import router as embeddings_router
-from app.routes.auth import router as auth_router, users_router
+from app.routes.auth import router as auth_router
+from app.routes.admin import router as admin_router
 
 from app.routes.drive import router as drive_router
 from app.routes.search import router as search_router
@@ -32,7 +33,7 @@ app.include_router(upload_router)
 app.include_router(chunks_router)
 app.include_router(embeddings_router)
 app.include_router(auth_router)
-app.include_router(users_router)
+app.include_router(admin_router)
 app.include_router(drive_router)
 app.include_router(search_router)
 

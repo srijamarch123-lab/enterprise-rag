@@ -17,6 +17,7 @@ from app.database import get_db
 from app.models import Document, DocumentStatus
 from app.config.settings import get_settings
 from app.services.extractor import extract_text
+from app.dependencies.rbac import require_manager_or_above, require_admin
 
 settings = get_settings()
 router = APIRouter(prefix="/api", tags=["documents"])
@@ -64,7 +65,7 @@ def _run_extraction(doc_id: int, db: Session):
         db.commit()
 
 
-@router.post("/upload", status_code=201)
+@router.post("/upload", status_code=201, dependencies=[Depends(require_manager_or_above)])
 def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -91,7 +92,7 @@ def upload_file(
     return {"id": doc.id, "filename": doc.original_filename, "status": doc.status}
 
 
-@router.post("/upload/bulk", status_code=201)
+@router.post("/upload/bulk", status_code=201, dependencies=[Depends(require_manager_or_above)])
 def upload_bulk(
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
@@ -171,7 +172,7 @@ def get_document(doc_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.delete("/documents/{doc_id}", status_code=204)
+@router.delete("/documents/{doc_id}", status_code=204, dependencies=[Depends(require_admin)])
 def delete_document(doc_id: int, db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:

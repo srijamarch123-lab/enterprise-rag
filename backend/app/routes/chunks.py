@@ -5,6 +5,7 @@ GET  /documents/{id}/chunks        — list chunks for a document
 GET  /chunks/{chunk_id}            — get single chunk
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from app.dependencies.rbac import require_manager_or_above
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -14,7 +15,7 @@ from app.services.chunker import chunk_document, chunk_all_documents
 router = APIRouter(prefix="/api", tags=["chunks"])
 
 
-@router.post("/documents/{doc_id}/chunk")
+@router.post("/documents/{doc_id}/chunk", dependencies=[Depends(require_manager_or_above)])
 def chunk_single(doc_id: int, db: Session = Depends(get_db)):
     doc = db.query(Document).filter(Document.id == doc_id).first()
     if not doc:
@@ -25,7 +26,7 @@ def chunk_single(doc_id: int, db: Session = Depends(get_db)):
     return {"document_id": doc_id, "chunks_created": len(chunks)}
 
 
-@router.post("/chunk/all")
+@router.post("/chunk/all", dependencies=[Depends(require_manager_or_above)])
 def chunk_all(db: Session = Depends(get_db)):
     return chunk_all_documents(db)
 
