@@ -2,14 +2,12 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: '/api' })
 
-// Attach token from localStorage
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token')
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// Auto-refresh on 401
 api.interceptors.response.use(
   (r) => r,
   async (error) => {
@@ -35,8 +33,6 @@ api.interceptors.response.use(
 
 export default api
 
-// ─── Document APIs ────────────────────────────────────────────────────────────
-
 export const uploadFile = (file: File, department?: string) => {
   const form = new FormData()
   form.append('file', file)
@@ -59,14 +55,10 @@ export const getDocument = (id: number) =>
 
 export const deleteDocument = (id: number) => api.delete(`/documents/${id}`)
 
-// ─── Chunk APIs ───────────────────────────────────────────────────────────────
-
 export const chunkDocument = (id: number) => api.post(`/documents/${id}/chunk`)
 export const chunkAll = () => api.post('/chunk/all')
 export const getChunks = (docId: number) =>
   api.get(`/documents/${docId}/chunks`).then((r) => r.data)
-
-// ─── Embedding APIs ───────────────────────────────────────────────────────────
 
 export const embedDocument = (id: number) => api.post(`/documents/${id}/embed`)
 export const embedAll = () => api.post('/embed/all')
@@ -75,7 +67,8 @@ export const getEmbeddingStatus = (id: number) =>
 export const getQdrantStats = () => api.get('/qdrant/stats').then((r) => r.data)
 export const reprocessDocument = (id: number) => api.post(`/documents/${id}/reprocess`)
 
-// ─── Auth APIs ────────────────────────────────────────────────────────────────
+export const register = (email: string, password: string, full_name: string) =>
+  api.post('/auth/register', { email, password, full_name }).then((r) => r.data)
 
 export const login = (email: string, password: string) =>
   api.post('/auth/login', { email, password }).then((r) => r.data)
@@ -86,8 +79,7 @@ export const getUsers = () => api.get('/users').then((r) => r.data)
 export const updateRole = (userId: number, role: string) =>
   api.put(`/users/${userId}/role`, { role })
 export const disableUser = (userId: number) => api.put(`/users/${userId}/disable`)
-
-// ─── Drive APIs ───────────────────────────────────────────────────────────────
+export const enableUser = (userId: number) => api.put(`/users/${userId}/enable`)
 
 export const getDriveFiles = (folderId?: string) =>
   api.get('/drive/files', { params: { folder_id: folderId } }).then((r) => r.data)
