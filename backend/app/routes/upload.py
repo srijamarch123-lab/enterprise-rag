@@ -10,16 +10,20 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks, Request
+
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Document, DocumentStatus
 from app.config.settings import get_settings
 from app.services.extractor import extract_text
+from app.services.chunker import chunk_document
 from app.dependencies.rbac import require_manager_or_above, require_admin
+from app.services.audit import log_action
 
 settings = get_settings()
+
 router = APIRouter(prefix="/api", tags=["documents"])
 
 UPLOAD_DIR = Path(settings.upload_dir)
@@ -58,6 +62,8 @@ def _run_extraction(doc_id: int, db: Session):
         doc.page_count = pages
         doc.status = DocumentStatus.extracted
         doc.processed_at = datetime.utcnow()
+        # Immediately chunk after successful extraction
+        chunk_document(doc, db)
     except Exception as e:
         doc.status = DocumentStatus.failed
         doc.extraction_error = str(e)
@@ -70,8 +76,10 @@ def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     department: str | None = None,
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
+
     ext = _validate_file(file)
     saved_name, file_path, size = _save_file(file, ext)
 
@@ -89,7 +97,17 @@ def upload_file(
     db.refresh(doc)
 
     background_tasks.add_task(_run_extraction, doc.id, db)
+
+    log_action(
+        db,
+        action="upload",
+        user_id=None,
+        ip_address=request.client.host if request and request.client else None,
+        details={"filename": file.filename, "document_id": doc.id},
+    )
+
     return {"id": doc.id, "filename": doc.original_filename, "status": doc.status}
+
 
 
 @router.post("/upload/bulk", status_code=201, dependencies=[Depends(require_manager_or_above)])
@@ -97,8 +115,10 @@ def upload_bulk(
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     department: str | None = None,
+    request: Request = None,
     db: Session = Depends(get_db),
 ):
+
     results = []
     for file in files:
         try:
@@ -120,7 +140,18 @@ def upload_bulk(
             results.append({"id": doc.id, "filename": file.filename, "status": "queued"})
         except HTTPException as e:
             results.append({"filename": file.filename, "error": e.detail})
+            continue
+
+        log_action(
+            db,
+            action="upload",
+            user_id=None,
+            ip_address=request.client.host if request and request.client else None,
+            details={"filename": file.filename, "document_id": doc.id},
+        )
+
     return {"uploaded": len(results), "results": results}
+
 
 
 @router.get("/documents")

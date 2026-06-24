@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -6,6 +6,8 @@ from app.database import get_db
 from app.dependencies.rbac import require_admin
 from app.models import User, UserRole
 from app.services.auth import get_current_user
+from app.services.audit import log_action
+
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -34,6 +36,7 @@ def list_users(db: Session = Depends(get_db)):
 @router.put("/users/role", dependencies=[Depends(require_admin)])
 def update_role(
     body: RoleUpdateRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.id == body.user_id).first()
@@ -43,11 +46,21 @@ def update_role(
     user.role = body.role
     user.token_version += 1  # invalidate existing tokens
     db.commit()
+
+    log_action(
+        db,
+        action="role_change",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        details={"role": str(body.role)},
+    )
+
     return {"message": f"Role updated to {body.role} for user {user.email}"}
 
 
+
 @router.put("/users/{user_id}/disable", dependencies=[Depends(require_admin)])
-def disable_user(user_id: int, db: Session = Depends(get_db)):
+def disable_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -55,11 +68,20 @@ def disable_user(user_id: int, db: Session = Depends(get_db)):
     user.is_active = False
     user.token_version += 1
     db.commit()
+
+    log_action(
+        db,
+        action="disable_user",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        details=None,
+    )
+
     return {"message": f"User {user.email} disabled"}
 
 
 @router.put("/users/{user_id}/enable", dependencies=[Depends(require_admin)])
-def enable_user(user_id: int, db: Session = Depends(get_db)):
+def enable_user(user_id: int, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -67,4 +89,65 @@ def enable_user(user_id: int, db: Session = Depends(get_db)):
     user.is_active = True
     user.token_version += 1
     db.commit()
+
+    log_action(
+        db,
+        action="enable_user",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        details=None,
+    )
+
     return {"message": f"User {user.email} enabled"}
+
+
+@router.post("/users/{user_id}/force-logout", dependencies=[Depends(require_admin)])
+def force_logout(user_id: int, request: Request, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.token_version += 1
+    db.commit()
+
+    log_action(
+        db,
+        action="force_logout",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        details={"email": user.email},
+    )
+
+    return {"message": f"User {user.email} forcefully logged out"}
+
+
+@router.get("/audit-logs", dependencies=[Depends(require_admin)])
+def get_audit_logs(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    from app.models import AuditLog
+
+    logs = (
+        db.query(AuditLog)
+        .order_by(AuditLog.timestamp.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "id": l.id,
+            "user_id": l.user_id,
+            "action": l.action,
+            "timestamp": l.timestamp,
+            "ip_address": l.ip_address,
+            "details": l.details,
+            "resource_type": l.resource_type,
+            "resource_id": l.resource_id,
+        }
+        for l in logs
+    ]
+

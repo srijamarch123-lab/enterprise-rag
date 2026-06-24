@@ -130,3 +130,4 @@ watchfiles==1.2.0
 websockets==16.0
 xlsxwriter==3.2.9
 yarl==1.24.2
+

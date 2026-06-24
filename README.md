@@ -1,4 +1,4 @@
-# Enterprise RAG — Document Search System
+<!-- # Enterprise RAG — Document Search System
 
 > Internship project · Jun–Jul 2026 · FastAPI + React + Qdrant Cloud + OpenAI
 
@@ -148,4 +148,4 @@ Copy these from your Colab project to this repo:
 | `/content/project_root/uploads/` | `backend/uploads/` |
 | `My Drive/credentials.json` | `backend/credentials.json` |
 
-The `.env` file replaces all Colab `_secret()` calls.
+The `.env` file replaces all Colab `_secret()` calls. -->

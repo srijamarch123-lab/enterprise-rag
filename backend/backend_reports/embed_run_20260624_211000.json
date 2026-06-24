@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-06-24T21:10:00.070972Z",
+  "chunking": {
+    "processed": 0,
+    "failed": 0,
+    "errors": {}
+  },
+  "embedding": {
+    "processed": 0,
+    "skipped": 0,
+    "failed": 0,
+    "errors": {}
+  },
+  "qdrant": {
+    "collection": "enterprise_rag",
+    "vectors_count": null,
+    "points_count": 29,
+    "status": "green"
+  }
+}

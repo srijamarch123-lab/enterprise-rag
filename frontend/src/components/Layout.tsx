@@ -12,22 +12,35 @@ const nav = [
 export default function Layout() {
   const navigate = useNavigate()
 
-  const handleLogout = () => {
-    localStorage.clear()
-    navigate('/login')
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    } finally {
+      navigate('/login')
+    }
   }
 
+
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      {/* Sidebar */}
-      <aside style={{
-        width: '220px',
-        background: '#e8f5ee',
-        borderRight: '1px solid #c8e6d0',
+    <div
+      style={{
         display: 'flex',
-        flexDirection: 'column',
-        flexShrink: 0,
-      }}>
+        height: '100vh',
+        overflow: 'hidden',
+        fontFamily: 'Inter, system-ui, sans-serif',
+      }}
+    >
+      {/* Sidebar */}
+      <aside
+        style={{
+          width: '220px',
+          background: '#e8f5ee',
+          borderRight: '1px solid #c8e6d0',
+          display: 'flex',
+          flexDirection: 'column',
+          flexShrink: 0,
+        }}
+      >
         {/* Logo */}
         <div style={{ padding: '20px 16px 16px', borderBottom: '1px solid #c8e6d0' }}>
           <div style={{ fontSize: '13px', fontWeight: '600', color: '#1a5c2e', letterSpacing: '-0.01em' }}>
@@ -39,7 +52,15 @@ export default function Layout() {
         </div>
 
         {/* Nav */}
-        <nav style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        <nav
+          style={{
+            flex: 1,
+            padding: '12px 8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2px',
+          }}
+        >
           {nav.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
@@ -51,7 +72,7 @@ export default function Layout() {
                 padding: '8px 10px',
                 borderRadius: '8px',
                 fontSize: '13px',
-                fontWeight: '500',
+                fontWeight: 500,
                 textDecoration: 'none',
                 color: isActive ? '#1a5c2e' : '#4a7a5a',
                 background: isActive ? '#c0dd97' : 'transparent',
@@ -73,9 +94,8 @@ export default function Layout() {
             gap: '8px',
             padding: '14px 18px',
             borderTop: '1px solid #c8e6d0',
-            background: 'none',
+            background: 'transparent',
             border: 'none',
-            borderTop: '1px solid #c8e6d0',
             cursor: 'pointer',
             fontSize: '13px',
             color: '#5a8a6a',

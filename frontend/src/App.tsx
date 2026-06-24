@@ -9,10 +9,10 @@ import DrivePage from './pages/DrivePage'
 import UsersPage from './pages/UsersPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('access_token')
-  if (!token) return <Navigate to="/login" replace />
+  // cookie-backed auth; presence of cookie is checked implicitly by API calls.
   return <>{children}</>
 }
+
 
 export default function App() {
   return (

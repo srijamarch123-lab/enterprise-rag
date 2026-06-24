@@ -10,21 +10,34 @@ POST /api/auth/reset-password/confirm
 """
 
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
+
+
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import User, UserRole, AuditLog, PasswordResetToken
+from typing import TYPE_CHECKING
+
+from fastapi import Cookie
+
 from app.services.auth import (
-    hash_password,
-    verify_password,
+
     create_access_token,
     create_refresh_token,
     decode_token,
     get_current_user,
+    hash_password,
+    set_jwt_cookie,
+    clear_jwt_cookie,
+    verify_password,
     create_reset_token,
 )
+
+from app.config.settings import get_settings
+
+
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -87,7 +100,13 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+
+def login(
+    req: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+
     user = db.query(User).filter(User.email == req.email).first()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
@@ -98,27 +117,56 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
     access_token = create_access_token(payload)
     refresh_token = create_refresh_token(payload)
 
+    # HttpOnly cookie storage (prevents JS access => mitigates XSS token theft)
+    # max_age aligns with token expiry (seconds). Using simple conversion.
+    access_max_age = 60 * get_settings().jwt_access_token_expire_minutes
+    refresh_max_age = 60 * 60 * 24 * get_settings().jwt_refresh_token_expire_days
+
+    set_jwt_cookie(response, "access_token", access_token, max_age=int(access_max_age))
+    set_jwt_cookie(response, "refresh_token", refresh_token, max_age=int(refresh_max_age))
+
+
     user.last_login = datetime.utcnow()
     db.commit()
     _log(db, user.id, "login")
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "role": user.role,
-    }
+    return {"role": user.role, "message": "Logged in"}
+
 
 
 @router.post("/logout")
-def logout(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+
+def logout(
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Best-effort invalidation: bump token_version so current cookie becomes unusable.
+    current_user.token_version += 1
+    db.commit()
+
+    clear_jwt_cookie(response, "access_token")
+    clear_jwt_cookie(response, "refresh_token")
+
     _log(db, current_user.id, "logout")
     return {"message": "Logged out"}
 
 
+
 @router.post("/refresh")
-def refresh(refresh_token: str, db: Session = Depends(get_db)):
+
+def refresh(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(401, "Missing refresh token")
+
     payload = decode_token(refresh_token)
+
     if payload.get("type") != "refresh":
         raise HTTPException(401, "Not a refresh token")
 
@@ -127,7 +175,13 @@ def refresh(refresh_token: str, db: Session = Depends(get_db)):
         raise HTTPException(401, "User not found")
 
     new_payload = {"sub": user.id, "role": user.role, "tv": user.token_version}
-    return {"access_token": create_access_token(new_payload), "token_type": "bearer"}
+    access_token = create_access_token(new_payload)
+
+    access_max_age = 60 * get_settings().jwt_access_token_expire_minutes
+    set_jwt_cookie(response, "access_token", access_token, max_age=int(access_max_age))
+
+    return {"message": "Refreshed"}
+
 
 
 @router.get("/me")

@@ -54,6 +54,14 @@ def _visible_roles_for_access_level(access_level: AccessLevel) -> list[str]:
 
 
 def embed_document(document: Document, db: Session) -> dict:
+    """Embed a document, continuing even if some chunks fail.
+
+    - If all chunks are already embedded => skipped.
+    - Otherwise embed only chunks where is_embedded=False.
+    - On per-chunk failure: record Chunk.embedding_error and keep going.
+    - If at least one chunk succeeds => mark document.status=embedded.
+    - If all remaining chunks fail => mark document.status=failed.
+    """
     if check_already_embedded(document.id, db):
         return {"skipped": True, "reason": "already embedded"}
 
@@ -64,21 +72,24 @@ def embed_document(document: Document, db: Session) -> dict:
     chunks = (
         db.query(Chunk)
         .filter(Chunk.document_id == document.id, Chunk.is_embedded == False)
+        .order_by(Chunk.chunk_index)
         .all()
     )
 
     if not chunks:
         return {"embedded": 0}
 
-    texts = [c.text for c in chunks]
-    vectors = list(model.embed(texts))
-
     visible_roles = _visible_roles_for_access_level(document.access_level)
-    points = []
-    for chunk, vector in zip(chunks, vectors):
-        point_id = str(uuid.uuid4())
-        points.append(
-            PointStruct(
+
+    embedded_count = 0
+    failed_count = 0
+
+    # Embed chunk-by-chunk to isolate failures
+    for chunk in chunks:
+        try:
+            vector = next(model.embed([chunk.text]))
+            point_id = str(uuid.uuid4())
+            point = PointStruct(
                 id=point_id,
                 vector=vector,
                 payload={
@@ -94,40 +105,82 @@ def embed_document(document: Document, db: Session) -> dict:
                     "text_preview": chunk.text[:200],
                 },
             )
-        )
-        chunk.qdrant_point_id = point_id
-        chunk.is_embedded = True
 
-    qdrant_client.upsert(
-        collection_name=settings.qdrant_collection_name,
-        points=points,
-    )
+            qdrant_client.upsert(
+                collection_name=settings.qdrant_collection_name,
+                points=[point],
+            )
 
-    document.status = DocumentStatus.embedded
+            chunk.qdrant_point_id = point_id
+            chunk.is_embedded = True
+            chunk.embedding_error = None
+            embedded_count += 1
+
+        except Exception as e:
+            db.rollback()
+            chunk.is_embedded = False
+            chunk.embedding_error = str(e)
+            failed_count += 1
+            # persist per-chunk failure and continue
+            db.add(chunk)
+            db.commit()
+
+    if embedded_count > 0 and failed_count == 0:
+        document.status = DocumentStatus.embedded
+    elif embedded_count > 0:
+        # partially embedded; keep as embedded so UI can retrieve successes
+        document.status = DocumentStatus.embedded
+    else:
+        document.status = DocumentStatus.failed
+
     db.commit()
-    return {"embedded": len(points)}
+    return {
+        "embedded": embedded_count,
+        "failed": failed_count,
+        "remaining": len(chunks),
+    }
 
 def embed_all_documents(db: Session) -> dict:
+    """Embed all documents that are chunked (or in embedding state).
+
+    Continues after per-document errors; embeds each document independently.
+    """
     docs = (
         db.query(Document)
         .filter(Document.status.in_([DocumentStatus.chunked, DocumentStatus.embedding]))
+        .order_by(Document.id)
         .all()
     )
-    results = {"processed": 0, "skipped": 0, "failed": 0, "errors": {}}
+
+    results = {
+        "processed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": {},
+    }
+
     for doc in docs:
         try:
+            # attempt embedding regardless of previous embedding attempt
             doc.status = DocumentStatus.embedding
             db.commit()
+
             result = embed_document(doc, db)
             if result.get("skipped"):
                 results["skipped"] += 1
             else:
-                results["processed"] += 1
+                # If embed_document marked it failed, count as failed (but still continue)
+                if doc.status == DocumentStatus.failed:
+                    results["failed"] += 1
+                else:
+                    results["processed"] += 1
+
         except Exception as e:
             doc.status = DocumentStatus.failed
             db.commit()
             results["failed"] += 1
             results["errors"][doc.id] = str(e)
+
     return results
 
 def reprocess_document(document_id: int, db: Session) -> dict:
