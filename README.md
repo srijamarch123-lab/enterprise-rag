@@ -22,7 +22,6 @@ enterprise-rag/
 │   │   │   ├── extractor.py  PDF/DOCX/PPTX/TXT text extraction + OCR
 │   │   │   ├── chunker.py    RecursiveCharacterTextSplitter (800t/150t)
 │   │   │   ├── embedder.py   OpenAI embeddings + Qdrant upsert
-│   │   │   ├── drive.py      Google Drive service-account connector
 │   │   │   └── auth.py       JWT + bcrypt
 │   │   ├── models.py         SQLAlchemy models (Document, Chunk, User, AuditLog)
 │   │   ├── database.py       SQLAlchemy engine + session
@@ -124,6 +123,7 @@ npm run dev
 | GET | `/api/documents/{id}/embedding-status` | Embedding progress |
 | GET | `/api/qdrant/stats` | Qdrant collection stats |
 | POST | `/api/documents/{id}/reprocess` | Delete vectors + re-run |
+| POST | `/api/process-all` | Extract (OCR retry), chunk, and embed ALL stored docs (manager+). |
 | POST | `/api/auth/register` | Register user |
 | POST | `/api/auth/login` | Login → JWT |
 | POST | `/api/auth/logout` | Logout |
@@ -138,6 +138,14 @@ npm run dev
 
 ---
 
+## OCR prerequisites (Windows)
+
+`pytesseract` needs **Tesseract**, and `pdf2image` needs **Poppler** (specifically `pdftoppm`).
+
+If OCR fails, the backend will mark the document as `failed` and include an actionable message in `extraction_error`.
+
+---
+
 ## Migrating from Colab
 
 Copy these from your Colab project to this repo:
@@ -148,4 +156,7 @@ Copy these from your Colab project to this repo:
 | `/content/project_root/uploads/` | `backend/uploads/` |
 | `My Drive/credentials.json` | `backend/credentials.json` |
 
-The `.env` file replaces all Colab `_secret()` calls. -->
+The `.env` file replaces all Colab `_secret()` calls.
+-->
+
+

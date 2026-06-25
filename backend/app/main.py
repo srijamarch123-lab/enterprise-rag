@@ -12,8 +12,11 @@ from app.routes.admin import router as admin_router
 
 from app.routes.drive import router as drive_router
 from app.routes.search import router as search_router
+from app.routes.process_all import router as process_all_router
+
 
 app = FastAPI(
+
     title="Enterprise RAG API",
     description="Document ingestion, chunking, embedding, and semantic search",
     version="1.0.0",
@@ -39,6 +42,8 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(drive_router)
 app.include_router(search_router)
+app.include_router(process_all_router)
+
 
 # ─── Static files (optional, for serving frontend build) ─────────────────────
 static_dir = Path("static")

@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     chunk_size: int = 800
     chunk_overlap: int = 150
 
+    # OCR (Windows requires system dependencies installed)
+    ocr_enabled: bool = True
+    # If native page text has fewer than this many non-whitespace characters, we try OCR.
+    ocr_min_chars_per_page: int = 50
+
+
+
     @property
     def allowed_extensions_list(self) -> list[str]:
         return [ext.strip() for ext in self.allowed_extensions.split(",")]

@@ -9,7 +9,6 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 
-
     if ext == "pdf":
         return _extract_pdf(path)
     if ext == "docx":
@@ -22,14 +21,17 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
     raise ValueError(f"Unsupported file type: {ext}")
 
 
-
 def _extract_pdf(path: Path) -> tuple[str, int]:
     import fitz
+
+    from app.config.settings import get_settings
+
+    settings = get_settings()
 
     doc = fitz.open(str(path))
     pages: list[str] = []
 
-    # Try native text first for every page
+    # Try native text first for every page; fallback to OCR when text is too small.
     for page in doc:
         text = page.get_text()
 
@@ -37,14 +39,26 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
             blocks = page.get_text("blocks")
             text = "\n".join(b[4] for b in blocks if b[4].strip())
 
-        # OCR fallback requires system tesseract. If it isn't installed, skip.
-        if not text.strip():
-            text = _ocr_pdf_page_fallback(path, page.number)
+        # OCR fallback requires system tesseract + poppler (pdf2image).
+        # Trigger OCR when page text is empty OR very small.
+        should_ocr = not text.strip()
+        if not should_ocr:
+            try:
+                should_ocr = len(text.strip()) < settings.ocr_min_chars_per_page
+            except Exception:
+                should_ocr = False
+
+        if settings.ocr_enabled and should_ocr:
+            ocr_text, ocr_error = _ocr_pdf_page_fallback(path, page.number)
+            if ocr_error:
+                # Bubble up actionable error if OCR prerequisites are missing.
+                raise RuntimeError(ocr_error)
+            if ocr_text and ocr_text.strip():
+                text = ocr_text
 
         # Skip pages that remain empty after OCR
         if text and text.strip():
             pages.append(text)
-
 
     full_text = "\n".join(pages)
     page_count = len(doc)
@@ -55,21 +69,28 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
     return cleaned, page_count
 
 
+def _ocr_pdf_page_fallback(path: Path, page_number_zero_based: int) -> tuple[str, str | None]:
+    """Return (ocr_text, ocr_error).
 
-def _ocr_pdf_page_fallback(path: Path, page_number_zero_based: int) -> str:
-    """Return OCR text for a single PDF page, or empty string if OCR isn't possible."""
+    - ocr_error is set when system OCR prerequisites are missing (tesseract / poppler).
+    - If OCR fails for other reasons, returns ("", None).
+    """
+
+    # 1) Check tesseract availability
     try:
         import pytesseract
 
-        # If tesseract isn't on PATH, this will raise.
         pytesseract.get_tesseract_version()
     except Exception:
-        return ""
+        return "", (
+            "OCR failed: Tesseract is not installed or not on PATH. "
+            "Install Tesseract and ensure `tesseract.exe` is available in PATH."
+        )
 
+    # 2) Convert PDF page using poppler utilities (pdftoppm)
     try:
         from pdf2image import convert_from_path
 
-        # Higher DPI + single-page range
         images = convert_from_path(
             str(path),
             first_page=page_number_zero_based + 1,
@@ -77,24 +98,28 @@ def _ocr_pdf_page_fallback(path: Path, page_number_zero_based: int) -> str:
             dpi=300,
         )
         if not images:
-            return ""
+            return "", None
 
         img = images[0]
 
         # Basic preprocessing before OCR
         try:
-            from PIL import Image, ImageOps
+            from PIL import ImageOps
 
             gray = img.convert("L")
-            # simple contrast stretch
             gray = ImageOps.autocontrast(gray)
             img = gray
         except Exception:
             pass
 
-        return pytesseract.image_to_string(img).strip()
+        import pytesseract
+
+        return pytesseract.image_to_string(img).strip(), None
     except Exception:
-        return ""
+        return "", (
+            "OCR failed: poppler (pdftoppm) is missing or pdf2image cannot run. "
+            "Install Poppler and ensure `pdftoppm.exe` is available in PATH."
+        )
 
 
 def _extract_docx(path: Path) -> tuple[str, None]:
