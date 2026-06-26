@@ -1,4 +1,4 @@
-﻿"""
+"""
 JWT authentication + bcrypt password hashing.
 
 Current scheme:
@@ -21,7 +21,7 @@ from app.models import PasswordResetToken, User
 settings = get_settings()
 
 
-# ─── Password hashing ─────────────────────────────────────────────────────────
+# --- Password hashing ---------------------------------------------------------
 
 def hash_password(password: str) -> str:
     return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
@@ -31,7 +31,7 @@ def verify_password(plain: str, hashed: str) -> bool:
     return _bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
-# ─── JWT helpers ─────────────────────────────────────────────────────────────
+# --- JWT helpers -------------------------------------------------------------
 
 def create_access_token(data: dict) -> str:
     payload = data.copy()
@@ -63,7 +63,8 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Missing access token")
 
     payload = decode_token(access_token)
-    user_id: int | None = payload.get("sub")
+    user_id_raw = payload.get("sub")
+    user_id: int | None = int(user_id_raw) if user_id_raw is not None else None
     token_version: int = payload.get("tv", 0)
 
     if user_id is None:
@@ -79,7 +80,7 @@ def get_current_user(
     return user
 
 
-# ─── RBAC helper ─────────────────────────────────────────────────────────────
+# --- RBAC helper -------------------------------------------------------------
 
 def require_role(*roles: str):
     def _check(user: User = Depends(get_current_user)):
@@ -93,7 +94,7 @@ def require_role(*roles: str):
     return _check
 
 
-# ─── Password reset ─────────────────────────────────────────────────────────
+# --- Password reset ---------------------------------------------------------
 
 def create_reset_token(user_id: int, db: Session) -> str:
     token = secrets.token_urlsafe(32)
@@ -110,7 +111,7 @@ def create_reset_token(user_id: int, db: Session) -> str:
     return token
 
 
-# ─── Cookie utilities ───────────────────────────────────────────────────────
+# --- Cookie utilities -------------------------------------------------------
 
 def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -> None:
     # Use conservative cookie flags.
@@ -118,7 +119,7 @@ def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -
         key=name,
         value=token,
         httponly=True,
-        secure=True if settings.get("ENV", None) else False,  # best-effort; overridden by env if present
+        secure=False,  # best-effort; overridden by env if present
         samesite="lax",
         path="/",
         max_age=max_age,
@@ -127,4 +128,6 @@ def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -
 
 def clear_jwt_cookie(response: Response, name: str) -> None:
     response.delete_cookie(key=name, path="/", samesite="lax")
+
+
 

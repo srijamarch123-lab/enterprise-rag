@@ -104,16 +104,17 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 def login(
     req: LoginRequest,
     response: Response,
+    request: Request,
     db: Session = Depends(get_db),
 ):
 
-    user = db.query(User).filter(User.email == req.email).first()
+    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(401, "Invalid email or password")
     if not user.is_active:
         raise HTTPException(403, "Account disabled")
 
-    payload = {"sub": user.id, "role": user.role, "tv": user.token_version}
+    payload = {"sub": str(user.id), "role": user.role, "tv": user.token_version}
     access_token = create_access_token(payload)
     refresh_token = create_refresh_token(payload)
 
@@ -128,7 +129,7 @@ def login(
 
     user.last_login = datetime.utcnow()
     db.commit()
-    _log(db, user.id, "login")
+    _log(db, user.id, "login", ip_address=request.client.host)
 
     return {"role": user.role, "message": "Logged in"}
 
@@ -174,7 +175,7 @@ def refresh(
     if not user or not user.is_active:
         raise HTTPException(401, "User not found")
 
-    new_payload = {"sub": user.id, "role": user.role, "tv": user.token_version}
+    new_payload = {"sub": str(user.id), "role": user.role, "tv": user.token_version}
     access_token = create_access_token(new_payload)
 
     access_max_age = 60 * get_settings().jwt_access_token_expire_minutes
@@ -236,6 +237,11 @@ def reset_confirm(body: ResetConfirmBody, db: Session = Depends(get_db)):
 
     _log(db, user.id, "password_reset")
     return {"message": "Password updated successfully"}
+
+
+
+
+
 
 
 
