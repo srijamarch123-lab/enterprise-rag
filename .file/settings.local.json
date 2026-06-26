@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(c:/Maantic/Work/enterprise-rag/backend/venvsource/Scripts/python.exe c:/Maantic/Work/enterprise-rag/backend/run_process_all.py)",
+      "Bash(c:/Maantic/Work/enterprise-rag/backend/venv/Scripts/python.exe c:/Maantic/Work/enterprise-rag/backend/run_process_all.py)",
+      "Bash(c:/Maantic/Work/enterprise-rag/backend/venv/Scripts/pip.exe show nltk)",
+      "Bash(c:/Maantic/Work/enterprise-rag/backend/venv/Scripts/pip.exe install nltk)",
+      "Bash(c:/Maantic/Work/enterprise-rag/backend/venv/Scripts/pip.exe install rank-bm25)",
+      "Bash(c:/Maantic/Work/enterprise-rag/backend/venv/Scripts/python.exe -c \"import uvicorn; print\\(''uvicorn OK''\\)\")"
+    ]
+  }
+}

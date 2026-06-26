@@ -7,6 +7,7 @@ import UploadPage from './pages/UploadPage'
 import ProcessingPage from './pages/ProcessingPage'
 import DrivePage from './pages/DrivePage'
 import UsersPage from './pages/UsersPage'
+import SearchPage from './pages/SearchPage'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   // cookie-backed auth; presence of cookie is checked implicitly by API calls.
@@ -29,6 +30,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="/documents" replace />} />
         <Route path="documents" element={<DocumentsPage />} />
+        <Route path="search" element={<SearchPage />} />
         <Route path="upload" element={<UploadPage />} />
         <Route path="processing" element={<ProcessingPage />} />
         <Route path="drive" element={<DrivePage />} />

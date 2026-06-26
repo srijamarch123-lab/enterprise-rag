@@ -171,7 +171,7 @@ def refresh(
     if payload.get("type") != "refresh":
         raise HTTPException(401, "Not a refresh token")
 
-    user = db.query(User).filter(User.id == payload["sub"]).first()
+    user = db.query(User).filter(User.id == int(payload["sub"])).first()
     if not user or not user.is_active:
         raise HTTPException(401, "User not found")
 

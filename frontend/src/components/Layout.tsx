@@ -1,8 +1,9 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { FileText, Upload, HardDrive, Users, LogOut, Cpu } from 'lucide-react'
+import { FileText, Upload, HardDrive, Users, LogOut, Cpu, Search } from 'lucide-react'
 
 const nav = [
   { to: '/documents', icon: FileText, label: 'Documents' },
+  { to: '/search', icon: Search, label: 'Search' },
   { to: '/upload', icon: Upload, label: 'Upload' },
   { to: '/processing', icon: Cpu, label: 'Processing' },
   { to: '/drive', icon: HardDrive, label: 'Google Drive' },

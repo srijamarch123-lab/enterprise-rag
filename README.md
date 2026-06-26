@@ -74,6 +74,8 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 # Swagger UI → http://localhost:8000/docs
 ```
+cd backend && venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
+
 
 ### 2. Frontend
 
@@ -158,5 +160,3 @@ Copy these from your Colab project to this repo:
 
 The `.env` file replaces all Colab `_secret()` calls.
 -->
-
-
