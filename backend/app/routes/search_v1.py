@@ -14,6 +14,11 @@ from app.services.query_processor import normalize_query
 from app.services.rbac_filter import build_rbac_filter
 from qdrant_client.models import Filter
 from rank_bm25 import BM25Okapi
+import logging
+
+# Setup logging
+logger = logging.getLogger(__name__)
+
 
 settings = get_settings()
 router = APIRouter(prefix="/api", tags=["search"])
@@ -22,6 +27,8 @@ router = APIRouter(prefix="/api", tags=["search"])
 class SearchRequest(BaseModel):
     query: str
     limit: int = 10
+    offset: int = 0
+    offset: int = 0  # pagination offset
     department: Optional[str] = None
     # Optional keyword backend override: "bm25" or "postgres".
     # If omitted, BM25 is used (Postgres full-text can be added later).

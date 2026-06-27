@@ -62,3 +62,5 @@ export const getDriveFiles = (folderId?: string) =>
 
 export const importDriveFile = (fileId: string) => api.post(`/drive/import/${fileId}`)
 export const importAllDriveFiles = () => api.post('/drive/import-all')
+export const search = (query: string, limit = 5, department?: string) =>
+  api.post('/search', { query, limit, department }).then(r => r.data)

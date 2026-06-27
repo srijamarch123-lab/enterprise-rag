@@ -76,7 +76,6 @@ uvicorn app.main:app --reload --port 8000
 ```
 cd backend && venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
 
-
 ### 2. Frontend
 
 ```bash
