@@ -1,5 +1,9 @@
+import os
 import re
 from pathlib import Path
+
+# Configure pytesseract to use explicit Tesseract path on Windows
+_TESSERACT_PATH = os.environ.get("TESSERACT_CMD") or r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
 def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
@@ -76,15 +80,19 @@ def _ocr_pdf_page_fallback(path: Path, page_number_zero_based: int) -> tuple[str
     - If OCR fails for other reasons, returns ("", None).
     """
 
-    # 1) Check tesseract availability
-    try:
-        import pytesseract
+    # 1) Check tesseract availability using explicit path
+    import pytesseract
 
-        pytesseract.get_tesseract_version()
+    # Set the Tesseract path for pytesseract
+    pytesseract.pytesseract.tesseract_cmd = _TESSERACT_PATH
+    try:
+        version = pytesseract.get_tesseract_version()
+        if not version:
+            raise RuntimeError("No version")
     except Exception:
         return "", (
-            "OCR failed: Tesseract is not installed or not on PATH. "
-            "Install Tesseract and ensure `tesseract.exe` is available in PATH."
+            f"OCR failed: Tesseract not found at {_TESSERACT_PATH}. "
+            "Please install Tesseract OCR."
         )
 
     # 2) Convert PDF page using poppler utilities (pdftoppm)

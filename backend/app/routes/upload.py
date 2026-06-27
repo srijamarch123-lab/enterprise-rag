@@ -175,6 +175,7 @@ def list_documents(
             "department": d.department,
             "status": d.status,
             "page_count": d.page_count,
+            "chunk_count": len(d.chunks) if getattr(d, "chunks", None) is not None else None,
             "uploaded_at": d.uploaded_at,
             "processed_at": d.processed_at,
         }

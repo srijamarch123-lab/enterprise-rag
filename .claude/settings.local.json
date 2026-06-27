@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ls -la \"c:/Maantic/Work/enterprise-rag/backend/venv/Scripts/\"*.exe)"
-    ]
-  }
-}

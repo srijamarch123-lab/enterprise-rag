@@ -21,8 +21,12 @@ router = APIRouter(prefix="/api", tags=["search"])
 
 class SearchRequest(BaseModel):
     query: str
-    limit: int = 5
+    limit: int = 10
     department: Optional[str] = None
+    # Optional keyword backend override: "bm25" or "postgres".
+    # If omitted, BM25 is used (Postgres full-text can be added later).
+    keyword_backend: Optional[str] = None
+
 
 
 def _make_filter(role: str, department: Optional[str]) -> Filter:
@@ -232,17 +236,28 @@ def search(
         query_filter = _make_filter(str(current_user.role), req.department)
         client: QdrantClient = _get_qdrant()
 
-        # Get more results for better merging
+        top_k = req.limit
+
+        # 1) Semantic search in Qdrant (cosine similarity) - Top-K
         semantic_hits = client.search(
             collection_name=settings.qdrant_collection_name,
             query_vector=query_vector,
             query_filter=query_filter,
-            limit=req.limit * 2,  # Double for merging
+            limit=top_k,
             with_payload=True,
         )
 
-        # 2) BM25 keyword search in database
-        bm25_results = _bm25_search(normalized, visible_doc_ids, db, top_k=req.limit * 2)
+        # 2) Keyword search in database - Top-K
+        keyword_backend = (req.keyword_backend or "bm25").strip().lower()
+        if keyword_backend not in {"bm25", "postgres"}:
+            raise HTTPException(status_code=400, detail="keyword_backend must be 'bm25' or 'postgres'")
+
+        bm25_results = _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
+
+        # Postgres full-text (tsvector) not implemented yet; fall back to BM25.
+        if keyword_backend == "postgres":
+            bm25_results = _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
+
 
         # Get documents info for BM25 results
         for b in bm25_results:
@@ -253,11 +268,16 @@ def search(
                     b["access_level"] = doc.access_level
                     b["filename"] = doc.original_filename
 
-        # 3) Merge and re-rank with confidence threshold
-        # Get top 5 results for re-ranking
-        merged_results, has_answer = _merge_results(semantic_hits, bm25_results, top_k=5, confidence_threshold=0.72)
+        # 3) Merge + dedup + final Top-K=10 (or req.limit) unified candidate list
+        merged_results, has_answer = _merge_results(
+            semantic_hits,
+            bm25_results,
+            top_k=top_k,
+            confidence_threshold=0.72,
+        )
 
         return {
+
             "query": req.query,
             "normalized_query": normalized,
             "role": current_user.role,
