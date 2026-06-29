@@ -27,7 +27,6 @@ router = APIRouter(prefix="/api", tags=["search"])
 class SearchRequest(BaseModel):
     query: str
     limit: int = 10
-    offset: int = 0
     offset: int = 0  # pagination offset
     department: Optional[str] = None
     # Optional keyword backend override: "bm25" or "postgres".
@@ -111,6 +110,66 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
             })
 
     return results
+
+
+def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> list[dict]:
+    """Run PostgreSQL full-text search (tsvector) on chunks from visible documents."""
+    from sqlalchemy import text, func
+    from sqlalchemy.dialects import postgresql
+
+    if not visible_doc_ids:
+        return []
+
+    # Check if using PostgreSQL
+    db_url = str(db.bind.url)
+    if "postgresql" not in db_url.lower():
+        return []  # Fall back to BM25 for SQLite
+
+    try:
+        # Build tsquery from query tokens
+        query_tokens = query.lower().split()
+        ts_query = " & ".join(query_tokens) if query_tokens else ""
+
+        if not ts_query:
+            return []
+
+        # Use raw SQL for PostgreSQL full-text search
+        sql = text("""
+            SELECT id, document_id, chunk_index, page_number, text,
+                   ts_rank(to_tsvector('english', text), plainto_tsquery('english', :query)) as rank
+            FROM chunks
+            WHERE document_id IN :doc_ids
+              AND is_embedded = true
+              AND to_tsvector('english', text) @@ plainto_tsquery('english', :query)
+            ORDER BY rank DESC
+            LIMIT :limit
+        """)
+
+        # Execute with bound parameters
+        result = db.execute(
+            sql,
+            {
+                "query": query,
+                "doc_ids": tuple(visible_doc_ids),
+                "limit": top_k,
+            },
+        )
+
+        results = []
+        for row in result:
+            results.append({
+                "chunk_id": row.id,
+                "document_id": row.document_id,
+                "chunk_index": row.chunk_index,
+                "page_number": row.page_number,
+                "text_preview": row.text[:200] if row.text else "",
+                "bm25_score": float(row.rank),  # Use ts_rank as the score
+            })
+
+        return results
+    except Exception as e:
+        logger.warning(f"PostgreSQL tsvector search failed: {e}, falling back to BM25")
+        return []
 
 
 def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) -> float:
@@ -259,10 +318,11 @@ def search(
         if keyword_backend not in {"bm25", "postgres"}:
             raise HTTPException(status_code=400, detail="keyword_backend must be 'bm25' or 'postgres'")
 
-        bm25_results = _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
-
-        # Postgres full-text (tsvector) not implemented yet; fall back to BM25.
+        # Use PostgreSQL tsvector if postgres selected and available, else fallback to BM25
         if keyword_backend == "postgres":
+            ts_results = _postgres_ts_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
+            bm25_results = ts_results if ts_results else _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
+        else:
             bm25_results = _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
 
 
