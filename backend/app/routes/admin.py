@@ -151,3 +151,55 @@ def get_audit_logs(
         for l in logs
     ]
 
+
+class PromoteByEmailRequest(BaseModel):
+    email: str
+
+@router.post("/users/promote-to-admin", dependencies=[Depends(require_admin)])
+def promote_to_admin(
+    body: PromoteByEmailRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == body.email.lower().strip()).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="No user found with that email")
+    if user.role == UserRole.admin:
+        raise HTTPException(status_code=400, detail="User is already an admin")
+    user.role = UserRole.admin
+    user.token_version += 1
+    db.commit()
+    log_action(
+        db,
+        action="role_change",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        details={"role": "admin", "promoted_by_email": True},
+    )
+    return {"message": f"{user.email} is now an admin", "user_id": user.id}
+
+class PromoteByEmailRequest(BaseModel):
+    email: str
+
+@router.post("/users/promote-to-admin", dependencies=[Depends(require_admin)])
+def promote_to_admin(
+    body: PromoteByEmailRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.email == body.email.lower().strip()).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="No user found with that email")
+    if user.role == UserRole.admin:
+        raise HTTPException(status_code=400, detail="User is already an admin")
+    user.role = UserRole.admin
+    user.token_version += 1
+    db.commit()
+    log_action(
+        db,
+        action="role_change",
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        details={"role": "admin", "promoted_by_email": True},
+    )
+    return {"message": f"{user.email} is now an admin", "user_id": user.id}

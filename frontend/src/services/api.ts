@@ -7,7 +7,6 @@ const api = axios.create({
 
 export default api
 
-
 export const uploadFile = (file: File, department?: string) => {
   const form = new FormData()
   form.append('file', file)
@@ -51,16 +50,22 @@ export const login = (email: string, password: string) =>
 export const logout = () => api.post('/auth/logout')
 
 export const getMe = () => api.get('/auth/me').then((r) => r.data)
-export const getUsers = () => api.get('/users').then((r) => r.data)
+export const getUsers = () => api.get('/admin/users').then((r) => r.data)
 export const updateRole = (userId: number, role: string) =>
-  api.put(`/users/${userId}/role`, { role })
-export const disableUser = (userId: number) => api.put(`/users/${userId}/disable`)
-export const enableUser = (userId: number) => api.put(`/users/${userId}/enable`)
+  api.put('/admin/users/role', { user_id: userId, role })
+export const disableUser = (userId: number) => api.put(`/admin/users/${userId}/disable`)
+export const enableUser = (userId: number) => api.put(`/admin/users/${userId}/enable`)
+export const promoteToAdmin = (email: string) =>
+  api.post('/admin/users/promote-to-admin', { email }).then((r) => r.data)
 
-export const getDriveFiles = (folderId?: string) =>
-  api.get('/drive/files', { params: { folder_id: folderId } }).then((r) => r.data)
+export const getDriveFiles = (credentials_json: object, folder_id?: string) =>
+  api.post('/drive/files', { credentials_json, folder_id }).then((r) => r.data)
 
-export const importDriveFile = (fileId: string) => api.post(`/drive/import/${fileId}`)
-export const importAllDriveFiles = () => api.post('/drive/import-all')
+export const importDriveFile = (credentials_json: object, file: object) =>
+  api.post('/drive/import', { credentials_json, file }).then((r) => r.data)
+
+export const importAllDriveFiles = (credentials_json: object, files: object[]) =>
+  api.post('/drive/import-all', { credentials_json, files }).then((r) => r.data)
+
 export const search = (query: string, limit = 5, department?: string) =>
-  api.post('/search', { query, limit, department }).then(r => r.data)
+  api.post('/search', { query, limit, department }).then((r) => r.data)

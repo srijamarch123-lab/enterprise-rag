@@ -1,9 +1,12 @@
 import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
-
 import { login } from "../services/api"
 
-export default function LoginPage() {
+interface Props {
+  onLogin?: (role: string) => void
+}
+
+export default function LoginPage({ onLogin }: Props) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -16,11 +19,13 @@ export default function LoginPage() {
     setLoading(true)
     setError("")
     try {
-      await login(email, password)
-      navigate("/", { replace: true })
-      return
+      const res = await login(email, password)
+      if (onLogin) {
+        onLogin(res.role)
+      } else {
+        navigate("/", { replace: true })
+      }
     } catch (err: any) {
-
       setError(err.response?.data?.detail ?? "Login failed")
     } finally {
       setLoading(false)
@@ -44,10 +49,8 @@ export default function LoginPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
-              title="Email"
               type="email"
               value={email}
-
               onChange={(e) => setEmail(e.target.value)}
               required
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
@@ -56,10 +59,8 @@ export default function LoginPage() {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
-              title="Password"
               type="password"
               value={password}
-
               onChange={(e) => setPassword(e.target.value)}
               required
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"

@@ -280,7 +280,7 @@ def search(
             semantic_hits,
             bm25_results,
             top_k=top_k,
-            confidence_threshold=0.72,
+            confidence_threshold=0.3,
         )
 
         return {
