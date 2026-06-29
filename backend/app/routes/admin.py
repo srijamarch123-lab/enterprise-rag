@@ -9,7 +9,7 @@ from app.services.auth import get_current_user
 from app.services.audit import log_action
 
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 class RoleUpdateRequest(BaseModel):

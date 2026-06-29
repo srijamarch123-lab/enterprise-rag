@@ -9,32 +9,45 @@ interface LogEntry {
   timestamp: string
   ip_address: string | null
   details: any
-  resource_type: string | null
-  resource_id: number | null
+}
+
+interface UserMap {
+  [id: number]: string
 }
 
 const ACTION_COLORS: Record<string, { bg: string; color: string }> = {
-  login:         { bg: '#e8f5ee', color: '#1a5c2e' },
-  logout:        { bg: '#f0f0f0', color: '#555' },
-  role_change:   { bg: '#fff3cd', color: '#856404' },
-  disable_user:  { bg: '#fee', color: '#c00' },
-  enable_user:   { bg: '#e8f5ee', color: '#1a5c2e' },
-  force_logout:  { bg: '#fde8e8', color: '#a00' },
-  password_reset:{ bg: '#e8f0fe', color: '#1a56c2' },
+  login:          { bg: '#e8f5ee', color: '#1a5c2e' },
+  logout:         { bg: '#f0f0f0', color: '#555' },
+  role_change:    { bg: '#fff3cd', color: '#856404' },
+  disable_user:   { bg: '#fee', color: '#c00' },
+  enable_user:    { bg: '#e8f5ee', color: '#1a5c2e' },
+  force_logout:   { bg: '#fde8e8', color: '#a00' },
+  password_reset: { bg: '#e8f0fe', color: '#1a56c2' },
 }
 
 export default function UserLogPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
+  const [userMap, setUserMap] = useState<UserMap>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [skip, setSkip] = useState(0)
-  const limit = 50
+  const [page, setPage] = useState(0)
+  const limit = 20
 
-  const fetchLogs = async (s: number) => {
+  useEffect(() => {
+    api.get('/admin/users').then(res => {
+      const map: UserMap = {}
+      res.data.forEach((u: any) => { map[u.id] = u.email })
+      setUserMap(map)
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => { fetchLogs(page) }, [page])
+
+  const fetchLogs = async (p: number) => {
     setLoading(true)
     setError('')
     try {
-      const res = await api.get(`/admin/audit-logs?skip=${s}&limit=${limit}`)
+      const res = await api.get(`/admin/audit-logs?skip=${p * limit}&limit=${limit}`)
       setLogs(res.data)
     } catch {
       setError('Failed to load audit logs')
@@ -43,9 +56,10 @@ export default function UserLogPage() {
     }
   }
 
-  useEffect(() => { fetchLogs(skip) }, [skip])
-
   const fmt = (ts: string) => new Date(ts).toLocaleString()
+
+  const hasPrev = page > 0
+  const hasNext = logs.length === limit
 
   return (
     <div style={{ padding: '32px', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -70,7 +84,7 @@ export default function UserLogPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
               <thead>
                 <tr style={{ background: '#f7faf8', borderBottom: '1px solid #e0ece6' }}>
-                  {['Time', 'User ID', 'Action', 'IP Address', 'Details'].map(h => (
+                  {['Time', 'User', 'Action', 'IP Address', 'Details'].map(h => (
                     <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: 500, color: '#4a7a5a', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -78,16 +92,17 @@ export default function UserLogPage() {
               <tbody>
                 {logs.map((l, i) => {
                   const colors = ACTION_COLORS[l.action] || { bg: '#f0f0f0', color: '#555' }
+                  const userEmail = l.user_id ? (userMap[l.user_id] || `User #${l.user_id}`) : '—'
                   return (
                     <tr key={l.id} style={{ borderBottom: i < logs.length - 1 ? '1px solid #f0f5f2' : 'none' }}>
                       <td style={{ padding: '10px 14px', color: '#4a5a4a', whiteSpace: 'nowrap' }}>{fmt(l.timestamp)}</td>
-                      <td style={{ padding: '10px 14px', color: '#7a9a7a' }}>{l.user_id ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', color: '#4a5a4a', fontSize: '11px' }}>{userEmail}</td>
                       <td style={{ padding: '10px 14px' }}>
                         <span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: 500, background: colors.bg, color: colors.color }}>
                           {l.action}
                         </span>
                       </td>
-                      <td style={{ padding: '10px 14px', color: '#7a9a7a', fontFamily: 'monospace' }}>{l.ip_address ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', color: '#7a9a7a', fontFamily: 'monospace' }}>{l.ip_address || '—'}</td>
                       <td style={{ padding: '10px 14px', color: '#4a5a4a', maxWidth: '260px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {l.details ? JSON.stringify(l.details) : '—'}
                       </td>
@@ -100,17 +115,19 @@ export default function UserLogPage() {
 
           <div style={{ display: 'flex', gap: '10px', marginTop: '16px', alignItems: 'center' }}>
             <button
-              onClick={() => setSkip(s => Math.max(0, s - limit))}
-              disabled={skip === 0}
-              style={{ padding: '7px 16px', border: '1px solid #c8e6d0', borderRadius: '8px', background: 'white', fontSize: '12px', cursor: skip === 0 ? 'not-allowed' : 'pointer', color: skip === 0 ? '#aaa' : '#1a5c2e' }}
+              onClick={() => setPage(p => p - 1)}
+              disabled={!hasPrev}
+              style={{ padding: '7px 16px', border: '1px solid #c8e6d0', borderRadius: '8px', background: 'white', fontSize: '12px', cursor: hasPrev ? 'pointer' : 'not-allowed', color: hasPrev ? '#1a5c2e' : '#aaa' }}
             >
               Previous
             </button>
-            <span style={{ fontSize: '12px', color: '#7a9a7a' }}>Showing {skip + 1}–{skip + logs.length}</span>
+            <span style={{ fontSize: '12px', color: '#7a9a7a' }}>
+              Page {page + 1} &nbsp;·&nbsp; {logs.length} entries
+            </span>
             <button
-              onClick={() => setSkip(s => s + limit)}
-              disabled={logs.length < limit}
-              style={{ padding: '7px 16px', border: '1px solid #c8e6d0', borderRadius: '8px', background: 'white', fontSize: '12px', cursor: logs.length < limit ? 'not-allowed' : 'pointer', color: logs.length < limit ? '#aaa' : '#1a5c2e' }}
+              onClick={() => setPage(p => p + 1)}
+              disabled={!hasNext}
+              style={{ padding: '7px 16px', border: '1px solid #c8e6d0', borderRadius: '8px', background: 'white', fontSize: '12px', cursor: hasNext ? 'pointer' : 'not-allowed', color: hasNext ? '#1a5c2e' : '#aaa' }}
             >
               Next
             </button>
