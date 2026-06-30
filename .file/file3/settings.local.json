@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from app.routes.admin import get_stats; print\\(''get_stats imported OK''\\)\")",
+      "Bash(curl -s http://localhost:8000/api/admin/stats)",
+      "Bash(curl -s http://localhost:8000/admin/stats)",
+      "Bash(curl -s http://localhost:8000/admin/users)",
+      "Bash(npm run build)",
+      "Bash(curl -s http://localhost:8000/admin/audit-logs)",
+      "Bash(python -c \":*)",
+      "Bash(python -c \"from app.routes.admin import router; print\\([r.path for r in router.routes]\\)\")"
+    ]
+  }
+}

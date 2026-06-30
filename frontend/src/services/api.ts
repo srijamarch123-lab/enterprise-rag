@@ -51,6 +51,8 @@ export const logout = () => api.post('/auth/logout')
 
 export const getMe = () => api.get('/auth/me').then((r) => r.data)
 export const getUsers = () => api.get('/admin/users').then((r) => r.data)
+export const getStats = () => api.get("/admin/stats").then((r) => r.data)
+export const getLoginActivity = () => api.get("/admin/login-activity").then((r) => r.data)
 export const updateRole = (userId: number, role: string) =>
   api.put('/admin/users/role', { user_id: userId, role })
 export const disableUser = (userId: number) => api.put(`/admin/users/${userId}/disable`)
