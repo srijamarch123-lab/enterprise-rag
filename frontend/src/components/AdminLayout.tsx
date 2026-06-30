@@ -49,7 +49,7 @@ export default function AdminLayout() {
 
         <button
           onClick={handleLogout}
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 18px', borderTop: '1px solid #c8e6d0', background: 'transparent', border: 'none', borderTop: '1px solid #c8e6d0', cursor: 'pointer', fontSize: '13px', color: '#5a8a6a', width: '100%', textAlign: 'left' }}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 18px', borderTop: '1px solid #c8e6d0', background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '13px', color: '#5a8a6a', width: '100%', textAlign: 'left' }}
         >
           <LogOut size={14} />
           Log out

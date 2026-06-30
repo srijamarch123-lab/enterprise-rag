@@ -110,8 +110,25 @@ def login(
 
     user = db.query(User).filter(User.email == req.email.lower().strip()).first()
     if not user or not verify_password(req.password, user.hashed_password):
+        # Log failed attempt - we don't know the user exists, try to find by email for logging
+        failed_user = db.query(User).filter(User.email == req.email.lower().strip()).first()
+        _log(
+            db,
+            user_id=failed_user.id if failed_user else None,
+            action="login_failed",
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "invalid_password" if failed_user else "user_not_found"}
+        )
         raise HTTPException(401, "Invalid email or password")
     if not user.is_active:
+        # Log disabled account attempt
+        _log(
+            db,
+            user_id=user.id,
+            action="login_failed",
+            ip_address=request.client.host if request.client else None,
+            details={"reason": "account_disabled"}
+        )
         raise HTTPException(403, "Account disabled")
 
     payload = {"sub": str(user.id), "role": user.role, "tv": user.token_version}
@@ -129,7 +146,7 @@ def login(
 
     user.last_login = datetime.utcnow()
     db.commit()
-    _log(db, user.id, "login", ip_address=request.client.host)
+    _log(db, user.id, "login", ip_address=request.client.host, details={"email": user.email, "role": str(user.role)})
 
     return {"role": user.role, "message": "Logged in"}
 

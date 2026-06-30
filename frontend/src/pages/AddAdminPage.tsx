@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { UserCheck } from 'lucide-react'
-import api from '../services/api'
+import { useQueryClient } from '@tanstack/react-query'
+import { promoteToAdmin } from '../services/api'
 
 export default function AddAdminPage() {
+  const qc = useQueryClient()
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [success, setSuccess] = useState('')
@@ -15,9 +17,11 @@ export default function AddAdminPage() {
     setSuccess('')
     setError('')
     try {
-      const res = await api.post('/admin/users/promote-to-admin', { email: email.trim() })
-      setSuccess(res.data.message)
+      const res = await promoteToAdmin(email.trim())
+      setSuccess(res.message)
       setEmail('')
+      qc.invalidateQueries({ queryKey: ['users'] })
+      qc.invalidateQueries({ queryKey: ['stats'] })
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Something went wrong')
     } finally {
