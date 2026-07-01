@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx vite build)",
+      "Bash(python -c \":*)",
+      "Bash(python -c \"import qdrant_client; print\\(qdrant_client.__version__\\)\")"
+    ]
+  }
+}
