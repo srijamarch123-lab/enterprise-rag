@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -13,7 +13,10 @@ from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
 from app.services.rbac_filter import build_rbac_filter
 from qdrant_client.models import Filter
-from rank_bm25 import BM25Okapi
+try:
+    from rank_bm25 import BM25Okapi  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    BM25Okapi = None
 import logging
 
 # Setup logging
@@ -75,8 +78,10 @@ def _get_visible_doc_ids_for_role(role: str, db) -> set[int]:
     return {d.id for d in docs}
 
 
-def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> list[dict]:
+def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
     """Run BM25 keyword search on chunks from visible documents."""
+    if BM25Okapi is None:
+        raise HTTPException(status_code=500, detail="rank_bm25 dependency is missing on backend.")
     if not visible_doc_ids:
         return []
 
@@ -116,7 +121,7 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     return results
 
 
-def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> list[dict]:
+def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
     """Run PostgreSQL full-text search (tsvector) on chunks from visible documents."""
     from sqlalchemy import text, func
     from sqlalchemy.dialects import postgresql
@@ -176,7 +181,7 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
         return []
 
 
-def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) -> float:
+def _calculate_combined_score(item: Dict[str, Any], semantic_max: float, bm25_max: float) -> float:
     """Re-rank: 0.7×semantic + 0.3×keyword + metadata_boost."""
     semantic = item.get("semantic_score", 0)
     bm25 = item.get("bm25_score", 0)
@@ -202,11 +207,11 @@ def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) 
 
 
 def _merge_results(
-    semantic_hits: list,
-    bm25_results: list[dict],
+    semantic_hits: List[Any],
+    bm25_results: List[Dict[str, Any]],
     top_k: int,
-    confidence_threshold: float = CONFIDENCE_THRESHOLD,
-) -> tuple[list[dict], bool]:
+    confidence_threshold: Optional[float] = None,
+):
     """Merge and re-rank with confidence threshold. Returns (results, has_answer)."""
     # Get max scores for normalization
     semantic_max = max((h.score for h in semantic_hits), default=0)
@@ -283,7 +288,8 @@ def _merge_results(
 
     # Check confidence threshold
     top_score = results[0].get("confidence_score", 0) if results else 0
-    has_answer = top_score >= confidence_threshold
+    threshold = confidence_threshold if confidence_threshold is not None else CONFIDENCE_THRESHOLD
+    has_answer = top_score >= threshold
 
     return results if has_answer else [], has_answer
 
@@ -292,7 +298,7 @@ def _merge_results(
 def search(
     req: SearchRequest,
     current_user: User = Depends(get_current_user),
-    db: SessionLocal = Depends(get_db),  # Add db dependency
+    db=Depends(get_db),  # SQLAlchemy session (type annotated as Any to satisfy Pylance)
 ):
     try:
         if req.limit < 1 or req.limit > 50:

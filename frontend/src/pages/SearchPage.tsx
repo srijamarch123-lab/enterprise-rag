@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Search, FileText, Loader2 } from 'lucide-react'
 import api from '../services/api'
+import './searchPage.css'
 
 interface SearchResult {
-  // existing fields
   score: number
   semantic_score?: number
   bm25_score?: number
@@ -12,7 +12,6 @@ interface SearchResult {
   search_type: 'semantic' | 'bm25' | 'hybrid'
   qdrant_point_id?: string
 
-  // source attribution (Phase 5)
   doc_name?: string
   doc_id?: number
   path?: string
@@ -20,7 +19,6 @@ interface SearchResult {
   chunk_index: number
   page?: number | null
 
-  // legacy fields (may still exist from older backend)
   document_id?: number
   page_number?: number | null
   text_preview: string
@@ -61,52 +59,28 @@ export default function SearchPage() {
   }
 
   return (
-    <div style={{ padding: '24px', maxWidth: '900px' }}>
-      <h1 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '20px', color: '#1a5c2e' }}>
-        Search Documents
-      </h1>
+    <div className="search-page">
+      <h1 className="search-title">Search Documents</h1>
 
       {/* Search Form */}
-      <form onSubmit={handleSearch} style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <div style={{ flex: 1, position: 'relative' }}>
+      <form onSubmit={handleSearch} className="search-form">
+        <div className="search-form-row">
+          <div className="search-input-wrap">
             <Search
               size={18}
-              style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#7a9a7a' }}
+              // Webhint no-inline-styles: keep minimal class-based styling
+              className="search-input-icon"
             />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search your documents..."
-              style={{
-                width: '100%',
-                padding: '12px 16px 12px 44px',
-                fontSize: '15px',
-                border: '1px solid #c8e6d0',
-                borderRadius: '10px',
-                outline: 'none',
-                background: 'white',
-              }}
+              className="search-input"
             />
           </div>
-          <button
-            type="submit"
-            disabled={loading || !query.trim()}
-            style={{
-              padding: '12px 24px',
-              background: loading ? '#c0dd97' : '#4a7a5a',
-              color: 'white',
-              border: 'none',
-              borderRadius: '10px',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
+
+          <button type="submit" disabled={loading || !query.trim()} className="search-submit">
             {loading && <Loader2 size={16} className="animate-spin" />}
             Search
           </button>
@@ -114,77 +88,48 @@ export default function SearchPage() {
       </form>
 
       {/* Error */}
-      {error && (
-        <div style={{ padding: '16px', background: '#fee', color: '#c00', borderRadius: '8px', marginBottom: '16px' }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="search-error">{error}</div>}
 
       {/* Results */}
       {searched && !loading && (
-        <div>
+        <div className="search-results-wrap">
           {!hasAnswer ? (
-            <div style={{ padding: '24px', textAlign: 'center', background: '#f5f5f5', borderRadius: '10px', color: '#666' }}>
-              No confident answer found. Try rephrasing your question.
-            </div>
+            <div className="no-answer">No confident answer found. Try rephrasing your question.</div>
           ) : results.length === 0 ? (
-            <div style={{ color: '#7a9a7a', textAlign: 'center', padding: '40px' }}>
-              No results found
-            </div>
+            <div className="no-results">No results found</div>
           ) : (
             <>
-              <div style={{ fontSize: '13px', color: '#7a9a7a', marginBottom: '16px' }}>
+              <div className="search-summary">
                 Found {results.length} results for "{query}"
                 {normalizedQuery && normalizedQuery !== query && (
-                  <span style={{ marginLeft: '8px' }}>
-                    (normalized: "{normalizedQuery}")
-                  </span>
+                  <span className="search-normalized">(normalized: "{normalizedQuery}")</span>
                 )}
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="search-cards">
                 {results.map((r, i) => (
-                  <div
-                    key={r.chunk_id || i}
-                    style={{
-                      padding: '16px',
-                      background: 'white',
-                      borderRadius: '10px',
-                      border: '1px solid #e8f5ee',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <FileText size={16} style={{ color: '#4a7a5a' }} />
-                        <span style={{ fontSize: '14px', fontWeight: 500, color: '#1a5c2e' }}>
-                          {r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}
-                        </span>
+                  <div key={r.chunk_id || i} className="search-card">
+                    <div className="search-card-header">
+                      <div className="search-card-title-row">
+                        <FileText size={16} className="search-icon" />
+                        <span className="search-card-docname">{r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}</span>
+
                         {r.search_type && (
                           <span
-                            style={{
-                              fontSize: '10px',
-                              padding: '2px 6px',
-                              borderRadius: '4px',
-                              background: r.search_type === 'semantic' ? '#e3d5fc' : '#fce3d5',
-                              color: r.search_type === 'semantic' ? '#5a3a9a' : '#9a5a3a',
-                              textTransform: 'uppercase',
-                            }}
+                            className={
+                              r.search_type === 'semantic'
+                                ? 'search-tag search-tag--semantic'
+                                : r.search_type === 'bm25'
+                                  ? 'search-tag search-tag--bm25'
+                                  : 'search-tag'
+                            }
                           >
                             {r.search_type}
                           </span>
                         )}
                       </div>
-                      <span
-                        style={{
-                          fontSize: '12px',
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          background: '#e8f5ee',
-                          color: '#1a5c2e',
-                          whiteSpace: 'nowrap',
-                        }}
-                        title="Confidence score"
-                      >
+
+                      <span className="search-score-badge" title="Confidence score">
                         {typeof r.confidence_score === 'number'
                           ? `${(r.confidence_score * 100).toFixed(1)}% confidence`
                           : r.combined_score
@@ -195,45 +140,19 @@ export default function SearchPage() {
                       </span>
                     </div>
 
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '4px' }}>
-                      {typeof (r.page ?? r.page_number) === 'number' && (
-                        <div style={{ fontSize: '12px', color: '#7a9a7a' }}>
-                          Page {r.page ?? r.page_number}
-                        </div>
-                      )}
-
-                      {typeof r.chunk_id === 'number' && (
-                        <div style={{ fontSize: '12px', color: '#7a9a7a' }}>
-                          Chunk {r.chunk_id}
-                        </div>
-                      )}
-
-                      {typeof r.doc_id === 'number' && (
-                        <div style={{ fontSize: '12px', color: '#7a9a7a' }}>
-                          Doc ID {r.doc_id}
-                        </div>
-                      )}
+                    <div className="search-meta-row">
+                      {typeof (r.page ?? r.page_number) === 'number' && <div className="search-meta-item">Page {r.page ?? r.page_number}</div>}
+                      {typeof r.chunk_id === 'number' && <div className="search-meta-item">Chunk {r.chunk_id}</div>}
+                      {typeof r.doc_id === 'number' && <div className="search-meta-item">Doc ID {r.doc_id}</div>}
 
                       {r.path && (
-                        <div
-                          style={{
-                            fontSize: '12px',
-                            color: '#7a9a7a',
-                            maxWidth: 260,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                          title={r.path}
-                        >
+                        <div className="search-source-path" title={r.path}>
                           Source: {r.path}
                         </div>
                       )}
                     </div>
 
-                    <div style={{ fontSize: '13px', color: '#4a5a4a', lineHeight: 1.5 }}>
-                      {r.text_preview}
-                    </div>
+                    <div className="search-preview">{r.text_preview}</div>
                   </div>
                 ))}
               </div>
@@ -243,11 +162,7 @@ export default function SearchPage() {
       )}
 
       {/* Initial state */}
-      {!searched && !loading && (
-        <div style={{ color: '#7a9a7a', textAlign: 'center', padding: '60px' }}>
-          Enter a query to search your documents
-        </div>
-      )}
+      {!searched && !loading && <div className="search-initial">Enter a query to search your documents</div>}
     </div>
   )
 }
