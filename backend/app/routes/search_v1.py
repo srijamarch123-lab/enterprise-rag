@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 from typing import Optional, Any, Dict, List
+=======
+﻿from typing import Optional
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -19,13 +23,7 @@ except ImportError:  # pragma: no cover
     BM25Okapi = None
 import logging
 
-# Setup logging
 logger = logging.getLogger(__name__)
-
-# Confidence threshold used for both:
-# - per-result confidence display
-# - has_answer (no-answer UI)
-CONFIDENCE_THRESHOLD = 0.3
 
 settings = get_settings()
 router = APIRouter(prefix="/api", tags=["search"])
@@ -34,20 +32,15 @@ router = APIRouter(prefix="/api", tags=["search"])
 class SearchRequest(BaseModel):
     query: str
     limit: int = 10
-    offset: int = 0  # pagination offset
+    offset: int = 0
     department: Optional[str] = None
-    # Optional keyword backend override: "bm25" or "postgres".
-    # If omitted, BM25 is used (Postgres full-text can be added later).
     keyword_backend: Optional[str] = None
-
 
 
 def _make_filter(role: str, department: Optional[str]) -> Filter:
     base = build_rbac_filter(role)
 
     if department:
-        # Qdrant client expects Filter as pydantic model;
-        # we append additional FieldCondition to `must`.
         from qdrant_client.models import FieldCondition, MatchValue
 
         base.must.append(
@@ -64,16 +57,14 @@ def _get_visible_doc_ids_for_role(role: str, db) -> set[int]:
     """Get document IDs visible to user's role based on access_level."""
     role_lower = (role or "").strip().lower()
 
-    # Determine allowed access levels for role
     allowed_levels = set()
     if role_lower in ("admin", "hr"):
         allowed_levels = {AccessLevel.public, AccessLevel.internal, AccessLevel.confidential, AccessLevel.restricted}
     elif role_lower == "manager":
         allowed_levels = {AccessLevel.public, AccessLevel.internal, AccessLevel.confidential}
-    else:  # employee
+    else:
         allowed_levels = {AccessLevel.public, AccessLevel.internal}
 
-    # Get document IDs matching allowed access levels
     docs = db.query(Document).filter(Document.access_level.in_(allowed_levels)).all()
     return {d.id for d in docs}
 
@@ -85,7 +76,6 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     if not visible_doc_ids:
         return []
 
-    # Get chunks for visible documents
     chunks = db.query(Chunk).filter(
         Chunk.document_id.in_(visible_doc_ids),
         Chunk.is_embedded == True
@@ -94,15 +84,12 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     if not chunks:
         return []
 
-    # Tokenize corpus for BM25
     corpus = [c.text.lower().split() for c in chunks]
     bm25 = BM25Okapi(corpus)
 
-    # Tokenize query
     query_tokens = query.lower().split()
     scores = bm25.get_scores(query_tokens)
 
-    # Get top results
     top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
     results = []
@@ -129,20 +116,17 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
     if not visible_doc_ids:
         return []
 
-    # Check if using PostgreSQL
     db_url = str(db.bind.url)
     if "postgresql" not in db_url.lower():
-        return []  # Fall back to BM25 for SQLite
+        return []
 
     try:
-        # Build tsquery from query tokens
         query_tokens = query.lower().split()
         ts_query = " & ".join(query_tokens) if query_tokens else ""
 
         if not ts_query:
             return []
 
-        # Use raw SQL for PostgreSQL full-text search
         sql = text("""
             SELECT id, document_id, chunk_index, page_number, text,
                    ts_rank(to_tsvector('english', text), plainto_tsquery('english', :query)) as rank
@@ -154,7 +138,6 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
             LIMIT :limit
         """)
 
-        # Execute with bound parameters
         result = db.execute(
             sql,
             {
@@ -172,7 +155,7 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
                 "chunk_index": row.chunk_index,
                 "page_number": row.page_number,
                 "text_preview": row.text[:200] if row.text else "",
-                "bm25_score": float(row.rank),  # Use ts_rank as the score
+                "bm25_score": float(row.rank),
             })
 
         return results
@@ -181,19 +164,21 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
         return []
 
 
+<<<<<<< HEAD
 def _calculate_combined_score(item: Dict[str, Any], semantic_max: float, bm25_max: float) -> float:
     """Re-rank: 0.7×semantic + 0.3×keyword + metadata_boost."""
+=======
+def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) -> float:
+    """Re-rank: 0.7x semantic + 0.3x keyword + metadata_boost."""
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
     semantic = item.get("semantic_score", 0)
     bm25 = item.get("bm25_score", 0)
 
-    # Normalize scores to 0-1 range
     sem_norm = semantic / semantic_max if semantic_max > 0 else 0
-    bm25_norm = min(bm25 / 10, 1.0)  # BM25 scores vary, cap at 10 for normalization
+    bm25_norm = min(bm25 / 10, 1.0)
 
-    # Base score: weighted combination
     base_score = 0.7 * sem_norm + 0.3 * bm25_norm
 
-    # Metadata boost: boost higher access levels
     meta_boost = 0.0
     access_level = item.get("access_level", "")
     if access_level == "internal":
@@ -207,20 +192,23 @@ def _calculate_combined_score(item: Dict[str, Any], semantic_max: float, bm25_ma
 
 
 def _merge_results(
+<<<<<<< HEAD
     semantic_hits: List[Any],
     bm25_results: List[Dict[str, Any]],
     top_k: int,
     confidence_threshold: Optional[float] = None,
 ):
+=======
+    semantic_hits: list, bm25_results: list[dict], top_k: int, confidence_threshold: float = 0.72
+) -> tuple[list[dict], bool]:
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
     """Merge and re-rank with confidence threshold. Returns (results, has_answer)."""
-    # Get max scores for normalization
     semantic_max = max((h.score for h in semantic_hits), default=0)
     bm25_max = max((b.get("bm25_score", 0) for b in bm25_results), default=0)
 
     seen = set()
     merged = []
 
-    # Interleave and collect all candidates
     semantic_idx = 0
     bm25_idx = 0
 
@@ -271,15 +259,14 @@ def _merge_results(
 
         break
 
-    # Calculate combined scores with re-ranking
     for m in merged:
         m["combined_score"] = _calculate_combined_score(m, semantic_max, bm25_max)
 
-    # Sort by combined score descending
     merged.sort(key=lambda x: x.get("combined_score", 0), reverse=True)
 
     results = merged[:top_k]
 
+<<<<<<< HEAD
     # Confidence per result (0..1 approx). We treat combined_score as confidence.
     # (If you later change scoring normalization, update here.)
     for r in results:
@@ -290,6 +277,10 @@ def _merge_results(
     top_score = results[0].get("confidence_score", 0) if results else 0
     threshold = confidence_threshold if confidence_threshold is not None else CONFIDENCE_THRESHOLD
     has_answer = top_score >= threshold
+=======
+    top_score = results[0].get("combined_score", 0) if results else 0
+    has_answer = top_score >= confidence_threshold
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
 
     return results if has_answer else [], has_answer
 
@@ -298,7 +289,11 @@ def _merge_results(
 def search(
     req: SearchRequest,
     current_user: User = Depends(get_current_user),
+<<<<<<< HEAD
     db=Depends(get_db),  # SQLAlchemy session (type annotated as Any to satisfy Pylance)
+=======
+    db: SessionLocal = Depends(get_db),
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
 ):
     try:
         if req.limit < 1 or req.limit > 50:
@@ -310,10 +305,8 @@ def search(
         if not normalized:
             raise HTTPException(status_code=400, detail="Query is empty after normalization")
 
-        # Get document IDs visible to user's role
         visible_doc_ids = _get_visible_doc_ids_for_role(str(current_user.role), db)
 
-        # 1) Semantic search in Qdrant (cosine similarity)
         query_vector = embed_query(normalized)
         if not query_vector:
             raise HTTPException(status_code=400, detail="Empty query vector")
@@ -323,29 +316,24 @@ def search(
 
         top_k = req.limit
 
-        # 1) Semantic search in Qdrant (cosine similarity) - Top-K
-        semantic_hits = client.search(
+        semantic_hits = client.query_points(
             collection_name=settings.qdrant_collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=query_filter,
             limit=top_k,
             with_payload=True,
-        )
+        ).points
 
-        # 2) Keyword search in database - Top-K
         keyword_backend = (req.keyword_backend or "bm25").strip().lower()
         if keyword_backend not in {"bm25", "postgres"}:
             raise HTTPException(status_code=400, detail="keyword_backend must be 'bm25' or 'postgres'")
 
-        # Use PostgreSQL tsvector if postgres selected and available, else fallback to BM25
         if keyword_backend == "postgres":
             ts_results = _postgres_ts_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
             bm25_results = ts_results if ts_results else _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
         else:
             bm25_results = _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
 
-
-        # Get documents info for BM25 results
         for b in bm25_results:
             if b.get("document_id"):
                 doc = db.query(Document).filter(Document.id == b["document_id"]).first()
@@ -354,45 +342,12 @@ def search(
                     b["access_level"] = doc.access_level
                     b["filename"] = doc.original_filename
 
-        # 3) Merge + dedup + final Top-K=10 (or req.limit) unified candidate list
         merged_results, has_answer = _merge_results(
             semantic_hits,
             bm25_results,
             top_k=top_k,
-            confidence_threshold=CONFIDENCE_THRESHOLD,
+            confidence_threshold=0.3,
         )
-
-        # Enrich merged results with full source attribution:
-        # doc name + doc_id + chunk_id + page + path
-        #
-        # Note: Qdrant payload might not always contain filename/path reliably,
-        # so we fetch from DB based on document_id.
-        doc_ids = {r.get("document_id") for r in merged_results if r.get("document_id") is not None}
-        docs_by_id = {}
-        if doc_ids:
-            docs = db.query(Document).filter(Document.id.in_(tuple(doc_ids))).all()
-            docs_by_id = {d.id: d for d in docs}
-
-        for r in merged_results:
-            doc_id = r.get("document_id")
-            doc = docs_by_id.get(doc_id) if doc_id is not None else None
-            if doc:
-                r["doc_id"] = doc.id
-                # doc_name: keep consistent with UI usage (use original_filename)
-                r["doc_name"] = doc.original_filename or doc.filename
-                r["path"] = doc.file_path
-                # Keep backwards-compatible filename field too
-                r["filename"] = doc.original_filename or doc.filename
-            else:
-                # Best-effort fallback from any existing fields
-                r["doc_id"] = r.get("document_id")
-                r["doc_name"] = r.get("filename")
-                # path may be missing if DB enrichment fails
-                r["path"] = r.get("path")
-
-            # Ensure chunk_id/page fields match requested names/types
-            r["chunk_id"] = r.get("chunk_id")
-            r["page"] = r.get("page_number")
 
         return {
             "query": req.query,
@@ -405,4 +360,3 @@ def search(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
