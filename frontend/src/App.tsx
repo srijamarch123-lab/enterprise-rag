@@ -4,7 +4,7 @@ import { getMe } from './services/api'
 
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
-import ChatPage from './pages/ChatPage'
+import SearchPage from './pages/SearchPage'
 import AdminLayout from './components/AdminLayout'
 import DocumentsPage from './pages/DocumentsPage'
 import ProcessingPage from './pages/ProcessingPage'
@@ -49,7 +49,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<AdminLayout />}>
           <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<ChatPage onLogout={handleLogout} />} />
+          <Route path="chat" element={<SearchPage onLogout={handleLogout} />} />
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="processing" element={<ProcessingPage />} />
           <Route path="drive" element={<DrivePage />} />
@@ -64,7 +64,7 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/chat" element={<ChatPage onLogout={handleLogout} />} />
+      <Route path="/chat" element={<SearchPage onLogout={handleLogout} />} />
       <Route path="*" element={<Navigate to="/chat" replace />} />
     </Routes>
   )

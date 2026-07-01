@@ -19,6 +19,10 @@ import logging
 # Setup logging
 logger = logging.getLogger(__name__)
 
+# Confidence threshold used for both:
+# - per-result confidence display
+# - has_answer (no-answer UI)
+CONFIDENCE_THRESHOLD = 0.3
 
 settings = get_settings()
 router = APIRouter(prefix="/api", tags=["search"])
@@ -198,7 +202,10 @@ def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) 
 
 
 def _merge_results(
-    semantic_hits: list, bm25_results: list[dict], top_k: int, confidence_threshold: float = 0.72
+    semantic_hits: list,
+    bm25_results: list[dict],
+    top_k: int,
+    confidence_threshold: float = CONFIDENCE_THRESHOLD,
 ) -> tuple[list[dict], bool]:
     """Merge and re-rank with confidence threshold. Returns (results, has_answer)."""
     # Get max scores for normalization
@@ -268,8 +275,14 @@ def _merge_results(
 
     results = merged[:top_k]
 
+    # Confidence per result (0..1 approx). We treat combined_score as confidence.
+    # (If you later change scoring normalization, update here.)
+    for r in results:
+        combined = r.get("combined_score", 0) or 0
+        r["confidence_score"] = float(combined)
+
     # Check confidence threshold
-    top_score = results[0].get("combined_score", 0) if results else 0
+    top_score = results[0].get("confidence_score", 0) if results else 0
     has_answer = top_score >= confidence_threshold
 
     return results if has_answer else [], has_answer
@@ -340,11 +353,42 @@ def search(
             semantic_hits,
             bm25_results,
             top_k=top_k,
-            confidence_threshold=0.3,
+            confidence_threshold=CONFIDENCE_THRESHOLD,
         )
 
-        return {
+        # Enrich merged results with full source attribution:
+        # doc name + doc_id + chunk_id + page + path
+        #
+        # Note: Qdrant payload might not always contain filename/path reliably,
+        # so we fetch from DB based on document_id.
+        doc_ids = {r.get("document_id") for r in merged_results if r.get("document_id") is not None}
+        docs_by_id = {}
+        if doc_ids:
+            docs = db.query(Document).filter(Document.id.in_(tuple(doc_ids))).all()
+            docs_by_id = {d.id: d for d in docs}
 
+        for r in merged_results:
+            doc_id = r.get("document_id")
+            doc = docs_by_id.get(doc_id) if doc_id is not None else None
+            if doc:
+                r["doc_id"] = doc.id
+                # doc_name: keep consistent with UI usage (use original_filename)
+                r["doc_name"] = doc.original_filename or doc.filename
+                r["path"] = doc.file_path
+                # Keep backwards-compatible filename field too
+                r["filename"] = doc.original_filename or doc.filename
+            else:
+                # Best-effort fallback from any existing fields
+                r["doc_id"] = r.get("document_id")
+                r["doc_name"] = r.get("filename")
+                # path may be missing if DB enrichment fails
+                r["path"] = r.get("path")
+
+            # Ensure chunk_id/page fields match requested names/types
+            r["chunk_id"] = r.get("chunk_id")
+            r["page"] = r.get("page_number")
+
+        return {
             "query": req.query,
             "normalized_query": normalized,
             "role": current_user.role,

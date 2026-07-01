@@ -38,8 +38,6 @@ class Settings(BaseSettings):
     # If native page text has fewer than this many non-whitespace characters, we try OCR.
     ocr_min_chars_per_page: int = 50
 
-
-
     @property
     def allowed_extensions_list(self) -> list[str]:
         return [ext.strip() for ext in self.allowed_extensions.split(",")]
@@ -52,8 +50,3 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     return Settings()
-
-    # Search settings
-    # Search settings
-
-    # Search settings

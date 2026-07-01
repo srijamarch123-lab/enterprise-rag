@@ -3,20 +3,30 @@ import { Search, FileText, Loader2 } from 'lucide-react'
 import api from '../services/api'
 
 interface SearchResult {
+  // existing fields
   score: number
   semantic_score?: number
   bm25_score?: number
   combined_score?: number
+  confidence_score?: number
   search_type: 'semantic' | 'bm25' | 'hybrid'
   qdrant_point_id?: string
+
+  // source attribution (Phase 5)
+  doc_name?: string
+  doc_id?: number
+  path?: string
   chunk_id: number
-  document_id: number
   chunk_index: number
-  page_number: number | null
+  page?: number | null
+
+  // legacy fields (may still exist from older backend)
+  document_id?: number
+  page_number?: number | null
   text_preview: string
   department: string | null
   access_level: string
-  filename: string
+  filename?: string
 }
 
 export default function SearchPage() {
@@ -115,7 +125,7 @@ export default function SearchPage() {
         <div>
           {!hasAnswer ? (
             <div style={{ padding: '24px', textAlign: 'center', background: '#f5f5f5', borderRadius: '10px', color: '#666' }}>
-              No answer found. Try rephrasing your question.
+              No confident answer found. Try rephrasing your question.
             </div>
           ) : results.length === 0 ? (
             <div style={{ color: '#7a9a7a', textAlign: 'center', padding: '40px' }}>
@@ -147,7 +157,7 @@ export default function SearchPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <FileText size={16} style={{ color: '#4a7a5a' }} />
                         <span style={{ fontSize: '14px', fontWeight: 500, color: '#1a5c2e' }}>
-                          {r.filename}
+                          {r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}
                         </span>
                         {r.search_type && (
                           <span
@@ -171,21 +181,55 @@ export default function SearchPage() {
                           borderRadius: '4px',
                           background: '#e8f5ee',
                           color: '#1a5c2e',
+                          whiteSpace: 'nowrap',
                         }}
+                        title="Confidence score"
                       >
-                        {r.combined_score
-                          ? `${(r.combined_score * 100).toFixed(1)}%`
-                          : r.search_type === 'semantic'
-                            ? `${(r.semantic_score ? r.semantic_score * 100 : 0).toFixed(1)}%`
-                            : `BM25: ${r.bm25_score?.toFixed(1) || 0}`}
+                        {typeof r.confidence_score === 'number'
+                          ? `${(r.confidence_score * 100).toFixed(1)}% confidence`
+                          : r.combined_score
+                            ? `${(r.combined_score * 100).toFixed(1)}%`
+                            : r.search_type === 'semantic'
+                              ? `${(r.semantic_score ? r.semantic_score * 100 : 0).toFixed(1)}%`
+                              : `BM25: ${r.bm25_score?.toFixed(1) || 0}`}
                       </span>
                     </div>
 
-                    {r.page_number && (
-                      <div style={{ fontSize: '12px', color: '#7a9a7a', marginBottom: '4px' }}>
-                        Page {r.page_number}
-                      </div>
-                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '4px' }}>
+                      {typeof (r.page ?? r.page_number) === 'number' && (
+                        <div style={{ fontSize: '12px', color: '#7a9a7a' }}>
+                          Page {r.page ?? r.page_number}
+                        </div>
+                      )}
+
+                      {typeof r.chunk_id === 'number' && (
+                        <div style={{ fontSize: '12px', color: '#7a9a7a' }}>
+                          Chunk {r.chunk_id}
+                        </div>
+                      )}
+
+                      {typeof r.doc_id === 'number' && (
+                        <div style={{ fontSize: '12px', color: '#7a9a7a' }}>
+                          Doc ID {r.doc_id}
+                        </div>
+                      )}
+
+                      {r.path && (
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            color: '#7a9a7a',
+                            maxWidth: 260,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                          title={r.path}
+                        >
+                          Source: {r.path}
+                        </div>
+                      )}
+                    </div>
 
                     <div style={{ fontSize: '13px', color: '#4a5a4a', lineHeight: 1.5 }}>
                       {r.text_preview}
