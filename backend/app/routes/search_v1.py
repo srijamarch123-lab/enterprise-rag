@@ -1,4 +1,8 @@
+<<<<<<< HEAD
+from typing import Optional, Any, Dict, List
+=======
 ﻿from typing import Optional
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -13,7 +17,10 @@ from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
 from app.services.rbac_filter import build_rbac_filter
 from qdrant_client.models import Filter
-from rank_bm25 import BM25Okapi
+try:
+    from rank_bm25 import BM25Okapi  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    BM25Okapi = None
 import logging
 
 logger = logging.getLogger(__name__)
@@ -66,8 +73,10 @@ def _get_visible_doc_ids_for_role(role: str, db) -> set[int]:
     return {d.id for d in docs}
 
 
-def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> list[dict]:
+def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
     """Run BM25 keyword search on chunks from visible documents."""
+    if BM25Okapi is None:
+        raise HTTPException(status_code=500, detail="rank_bm25 dependency is missing on backend.")
     if not visible_doc_ids:
         return []
 
@@ -103,7 +112,7 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     return results
 
 
-def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> list[dict]:
+def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
     """Run PostgreSQL full-text search (tsvector) on chunks from visible documents."""
     from sqlalchemy import text, func
     from sqlalchemy.dialects import postgresql
@@ -159,8 +168,13 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
         return []
 
 
+<<<<<<< HEAD
+def _calculate_combined_score(item: Dict[str, Any], semantic_max: float, bm25_max: float) -> float:
+    """Re-rank: 0.7×semantic + 0.3×keyword + metadata_boost."""
+=======
 def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) -> float:
     """Re-rank: 0.7x semantic + 0.3x keyword + metadata_boost."""
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
     semantic = item.get("semantic_score", 0)
     bm25 = item.get("bm25_score", 0)
 
@@ -182,8 +196,16 @@ def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) 
 
 
 def _merge_results(
+<<<<<<< HEAD
+    semantic_hits: List[Any],
+    bm25_results: List[Dict[str, Any]],
+    top_k: int,
+    confidence_threshold: Optional[float] = None,
+):
+=======
     semantic_hits: list, bm25_results: list[dict], top_k: int, confidence_threshold: float = 0.72
 ) -> tuple[list[dict], bool]:
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
     """Merge and re-rank with confidence threshold. Returns (results, has_answer)."""
     semantic_max = max((h.score for h in semantic_hits), default=0)
     bm25_max = max((b.get("bm25_score", 0) for b in bm25_results), default=0)
@@ -248,8 +270,21 @@ def _merge_results(
 
     results = merged[:top_k]
 
+<<<<<<< HEAD
+    # Confidence per result (0..1 approx). We treat combined_score as confidence.
+    # (If you later change scoring normalization, update here.)
+    for r in results:
+        combined = r.get("combined_score", 0) or 0
+        r["confidence_score"] = float(combined)
+
+    # Check confidence threshold
+    top_score = results[0].get("confidence_score", 0) if results else 0
+    threshold = confidence_threshold if confidence_threshold is not None else CONFIDENCE_THRESHOLD
+    has_answer = top_score >= threshold
+=======
     top_score = results[0].get("combined_score", 0) if results else 0
     has_answer = top_score >= confidence_threshold
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
 
     return results if has_answer else [], has_answer
 
@@ -258,7 +293,11 @@ def _merge_results(
 def search(
     req: SearchRequest,
     current_user: User = Depends(get_current_user),
+<<<<<<< HEAD
+    db=Depends(get_db),  # SQLAlchemy session (type annotated as Any to satisfy Pylance)
+=======
     db: SessionLocal = Depends(get_db),
+>>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
 ):
     try:
         if req.limit < 1 or req.limit > 50:
