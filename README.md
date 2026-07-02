@@ -128,6 +128,7 @@ npm run dev
 | POST | `/api/auth/register` | Register user |
 | POST | `/api/auth/login` | Login → JWT |
 | POST | `/api/auth/logout` | Logout |
+| POST | `/api/chat` | Chat over documents with LLM answer generation |
 | POST | `/api/auth/refresh` | Refresh access token |
 | GET | `/api/auth/me` | Current user |
 | GET | `/api/users` | List users (admin) |
@@ -158,4 +159,6 @@ Copy these from your Colab project to this repo:
 | `My Drive/credentials.json` | `backend/credentials.json` |
 
 The `.env` file replaces all Colab `_secret()` calls.
--->
+
+---
+

@@ -1,27 +1,21 @@
-<<<<<<< HEAD
-from typing import Optional, Any, Dict, List
-=======
-﻿from typing import Optional
->>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
+﻿from typing import Optional, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
+from qdrant_client.models import Filter
+from sqlalchemy.orm import Session
+import logging
 
 from app.config.settings import get_settings
-from app.database import SessionLocal, get_db
+from app.database import get_db
 from app.models import Chunk, User, Document, AccessLevel
 from app.services.auth import get_current_user
 from app.services.embedder import _get_qdrant
+from app.services.llm_service import build_answer
 from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
 from app.services.rbac_filter import build_rbac_filter
-from qdrant_client.models import Filter
-try:
-    from rank_bm25 import BM25Okapi  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover
-    BM25Okapi = None
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +33,9 @@ class SearchRequest(BaseModel):
     offset: int = 0
     department: Optional[str] = None
     keyword_backend: Optional[str] = None
+
+
+ChatRequest = SearchRequest
 
 
 def _make_filter(role: str, department: Optional[str]) -> Filter:
@@ -63,7 +60,12 @@ def _get_visible_doc_ids_for_role(role: str, db) -> set[int]:
 
     allowed_levels = set()
     if role_lower in ("admin", "hr"):
-        allowed_levels = {AccessLevel.public, AccessLevel.internal, AccessLevel.confidential, AccessLevel.restricted}
+        allowed_levels = {
+            AccessLevel.public,
+            AccessLevel.internal,
+            AccessLevel.confidential,
+            AccessLevel.restricted,
+        }
     elif role_lower == "manager":
         allowed_levels = {AccessLevel.public, AccessLevel.internal, AccessLevel.confidential}
     else:
@@ -73,6 +75,12 @@ def _get_visible_doc_ids_for_role(role: str, db) -> set[int]:
     return {d.id for d in docs}
 
 
+try:
+    from rank_bm25 import BM25Okapi  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    BM25Okapi = None
+
+
 def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
     """Run BM25 keyword search on chunks from visible documents."""
     if BM25Okapi is None:
@@ -80,10 +88,14 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     if not visible_doc_ids:
         return []
 
-    chunks = db.query(Chunk).filter(
-        Chunk.document_id.in_(visible_doc_ids),
-        Chunk.is_embedded == True
-    ).all()
+    chunks = (
+        db.query(Chunk)
+        .filter(
+            Chunk.document_id.in_(visible_doc_ids),
+            Chunk.is_embedded == True,  # noqa: E712
+        )
+        .all()
+    )
 
     if not chunks:
         return []
@@ -100,22 +112,23 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     for idx in top_indices:
         if scores[idx] > 0:
             chunk = chunks[idx]
-            results.append({
-                "chunk_id": chunk.id,
-                "document_id": chunk.document_id,
-                "chunk_index": chunk.chunk_index,
-                "page_number": chunk.page_number,
-                "text_preview": chunk.text[:200] if chunk.text else "",
-                "bm25_score": scores[idx],
-            })
+            results.append(
+                {
+                    "chunk_id": chunk.id,
+                    "document_id": chunk.document_id,
+                    "chunk_index": chunk.chunk_index,
+                    "page_number": chunk.page_number,
+                    "text_preview": chunk.text[:200] if chunk.text else "",
+                    "bm25_score": scores[idx],
+                }
+            )
 
     return results
 
 
 def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
     """Run PostgreSQL full-text search (tsvector) on chunks from visible documents."""
-    from sqlalchemy import text, func
-    from sqlalchemy.dialects import postgresql
+    from sqlalchemy import text
 
     if not visible_doc_ids:
         return []
@@ -131,7 +144,8 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
         if not ts_query:
             return []
 
-        sql = text("""
+        sql = text(
+            """
             SELECT id, document_id, chunk_index, page_number, text,
                    ts_rank(to_tsvector('english', text), plainto_tsquery('english', :query)) as rank
             FROM chunks
@@ -140,7 +154,8 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
               AND to_tsvector('english', text) @@ plainto_tsquery('english', :query)
             ORDER BY rank DESC
             LIMIT :limit
-        """)
+            """
+        )
 
         result = db.execute(
             sql,
@@ -153,14 +168,16 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
 
         results = []
         for row in result:
-            results.append({
-                "chunk_id": row.id,
-                "document_id": row.document_id,
-                "chunk_index": row.chunk_index,
-                "page_number": row.page_number,
-                "text_preview": row.text[:200] if row.text else "",
-                "bm25_score": float(row.rank),
-            })
+            results.append(
+                {
+                    "chunk_id": row.id,
+                    "document_id": row.document_id,
+                    "chunk_index": row.chunk_index,
+                    "page_number": row.page_number,
+                    "text_preview": row.text[:200] if row.text else "",
+                    "bm25_score": float(row.rank),
+                }
+            )
 
         return results
     except Exception as e:
@@ -168,13 +185,8 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
         return []
 
 
-<<<<<<< HEAD
-def _calculate_combined_score(item: Dict[str, Any], semantic_max: float, bm25_max: float) -> float:
-    """Re-rank: 0.7×semantic + 0.3×keyword + metadata_boost."""
-=======
 def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) -> float:
     """Re-rank: 0.7x semantic + 0.3x keyword + metadata_boost."""
->>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
     semantic = item.get("semantic_score", 0)
     bm25 = item.get("bm25_score", 0)
 
@@ -196,22 +208,17 @@ def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) 
 
 
 def _merge_results(
-<<<<<<< HEAD
-    semantic_hits: List[Any],
-    bm25_results: List[Dict[str, Any]],
+    semantic_hits: list,
+    bm25_results: list[dict],
     top_k: int,
-    confidence_threshold: Optional[float] = None,
-):
-=======
-    semantic_hits: list, bm25_results: list[dict], top_k: int, confidence_threshold: float = 0.72
+    confidence_threshold: float = CONFIDENCE_THRESHOLD,
 ) -> tuple[list[dict], bool]:
->>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
     """Merge and re-rank with confidence threshold. Returns (results, has_answer)."""
     semantic_max = max((h.score for h in semantic_hits), default=0)
     bm25_max = max((b.get("bm25_score", 0) for b in bm25_results), default=0)
 
     seen = set()
-    merged = []
+    merged: list[dict] = []
 
     semantic_idx = 0
     bm25_idx = 0
@@ -222,20 +229,22 @@ def _merge_results(
             chunk_id = h.payload.get("chunk_id") if h.payload else None
             if chunk_id and chunk_id not in seen:
                 seen.add(chunk_id)
-                merged.append({
-                    "score": h.score,
-                    "semantic_score": h.score,
-                    "qdrant_point_id": h.id,
-                    "chunk_id": chunk_id,
-                    "document_id": h.payload.get("document_id") if h.payload else None,
-                    "chunk_index": h.payload.get("chunk_index") if h.payload else None,
-                    "page_number": h.payload.get("page_number") if h.payload else None,
-                    "text_preview": h.payload.get("text_preview") if h.payload else "",
-                    "department": h.payload.get("department") if h.payload else None,
-                    "access_level": h.payload.get("access_level") if h.payload else None,
-                    "filename": h.payload.get("filename") if h.payload else None,
-                    "search_type": "semantic",
-                })
+                merged.append(
+                    {
+                        "score": h.score,
+                        "semantic_score": h.score,
+                        "qdrant_point_id": h.id,
+                        "chunk_id": chunk_id,
+                        "document_id": h.payload.get("document_id") if h.payload else None,
+                        "chunk_index": h.payload.get("chunk_index") if h.payload else None,
+                        "page_number": h.payload.get("page_number") if h.payload else None,
+                        "text_preview": h.payload.get("text_preview") if h.payload else "",
+                        "department": h.payload.get("department") if h.payload else None,
+                        "access_level": h.payload.get("access_level") if h.payload else None,
+                        "filename": h.payload.get("filename") if h.payload else None,
+                        "search_type": "semantic",
+                    }
+                )
             semantic_idx += 1
             continue
 
@@ -244,20 +253,22 @@ def _merge_results(
             chunk_id = b.get("chunk_id")
             if chunk_id and chunk_id not in seen:
                 seen.add(chunk_id)
-                merged.append({
-                    "score": b.get("bm25_score", 0),
-                    "semantic_score": 0,
-                    "bm25_score": b.get("bm25_score", 0),
-                    "chunk_id": chunk_id,
-                    "document_id": b.get("document_id"),
-                    "chunk_index": b.get("chunk_index"),
-                    "page_number": b.get("page_number"),
-                    "text_preview": b.get("text_preview", ""),
-                    "department": b.get("department"),
-                    "access_level": b.get("access_level"),
-                    "filename": b.get("filename"),
-                    "search_type": "bm25",
-                })
+                merged.append(
+                    {
+                        "score": b.get("bm25_score", 0),
+                        "semantic_score": 0,
+                        "bm25_score": b.get("bm25_score", 0),
+                        "chunk_id": chunk_id,
+                        "document_id": b.get("document_id"),
+                        "chunk_index": b.get("chunk_index"),
+                        "page_number": b.get("page_number"),
+                        "text_preview": b.get("text_preview", ""),
+                        "department": b.get("department"),
+                        "access_level": b.get("access_level"),
+                        "filename": b.get("filename"),
+                        "search_type": "bm25",
+                    }
+                )
             bm25_idx += 1
             continue
 
@@ -270,21 +281,8 @@ def _merge_results(
 
     results = merged[:top_k]
 
-<<<<<<< HEAD
-    # Confidence per result (0..1 approx). We treat combined_score as confidence.
-    # (If you later change scoring normalization, update here.)
-    for r in results:
-        combined = r.get("combined_score", 0) or 0
-        r["confidence_score"] = float(combined)
-
-    # Check confidence threshold
-    top_score = results[0].get("confidence_score", 0) if results else 0
-    threshold = confidence_threshold if confidence_threshold is not None else CONFIDENCE_THRESHOLD
-    has_answer = top_score >= threshold
-=======
     top_score = results[0].get("combined_score", 0) if results else 0
     has_answer = top_score >= confidence_threshold
->>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
 
     return results if has_answer else [], has_answer
 
@@ -293,11 +291,7 @@ def _merge_results(
 def search(
     req: SearchRequest,
     current_user: User = Depends(get_current_user),
-<<<<<<< HEAD
-    db=Depends(get_db),  # SQLAlchemy session (type annotated as Any to satisfy Pylance)
-=======
-    db: SessionLocal = Depends(get_db),
->>>>>>> 50c1da412e7ac609cb4c22dcc3d45b072f2bfe14
+    db: Session = Depends(get_db),
 ):
     try:
         if req.limit < 1 or req.limit > 50:
@@ -320,13 +314,13 @@ def search(
 
         top_k = req.limit
 
-        semantic_hits = client.query_points(
+        semantic_hits = client.search(
             collection_name=settings.qdrant_collection_name,
-            query=query_vector,
+            query_vector=query_vector,
             query_filter=query_filter,
             limit=top_k,
             with_payload=True,
-        ).points
+        )
 
         keyword_backend = (req.keyword_backend or "bm25").strip().lower()
         if keyword_backend not in {"bm25", "postgres"}:
@@ -353,14 +347,29 @@ def search(
             confidence_threshold=CONFIDENCE_THRESHOLD,
         )
 
-        # Source attribution (Phase 4.3): attach file_path from DB for every
-        # returned chunk (covers both semantic and bm25 results, since Qdrant
-        # payload doesn't store file_path).
+        # Source attribution: attach file_path from DB for every returned chunk
+        chunk_ids = [r["chunk_id"] for r in merged_results if r.get("chunk_id")]
+        chunk_map = {}
+        if chunk_ids:
+            chunks = db.query(Chunk).filter(Chunk.id.in_(chunk_ids)).all()
+            chunk_map = {chunk.id: chunk for chunk in chunks}
+
         for r in merged_results:
             if r.get("document_id"):
                 doc = db.query(Document).filter(Document.id == r["document_id"]).first()
                 if doc:
                     r["file_path"] = doc.file_path
+            chunk = chunk_map.get(r.get("chunk_id"))
+            if chunk:
+                r["text"] = chunk.text
+
+        answer = ""
+        if has_answer and merged_results:
+            try:
+                answer = build_answer(req.query, merged_results[:10])
+            except Exception as e:
+                logger.error("LLM answer generation failed: %s", e)
+                answer = ""
 
         return {
             "query": req.query,
@@ -368,8 +377,19 @@ def search(
             "role": current_user.role,
             "results": merged_results,
             "has_answer": has_answer,
+            "answer": answer,
         }
     except HTTPException:
         raise
     except Exception as e:
+        # Preserve original behavior: 500 with error detail (for debugging)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat")
+def chat(
+    req: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return search(req, current_user=current_user, db=db)

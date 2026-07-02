@@ -1,12 +1,14 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import api from '../services/api'
 import { logout } from '../services/api'
 import { theme } from '../theme'
+import './ChatPage.css'
 
 const { color, font, radius } = theme
-
 const STORAGE_KEY = 'enterprise_rag_chat_conversations'
 
 interface SearchResult {
@@ -36,6 +38,7 @@ interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   query?: string
+  answer?: string
   results?: SearchResult[]
   hasAnswer?: boolean
   normalizedQuery?: string
@@ -138,10 +141,11 @@ export default function ChatPage({ role }: ChatPageProps) {
     setLoading(true)
 
     try {
-      const res = await api.post('/search', { query, limit: 5 })
+      const res = await api.post('/chat', { query, limit: 5 })
       const assistantMsg: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'assistant',
+        answer: res.data.answer || '',
         results: res.data.results || [],
         hasAnswer: res.data.has_answer ?? true,
         normalizedQuery: res.data.normalized_query || '',
@@ -160,85 +164,49 @@ export default function ChatPage({ role }: ChatPageProps) {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', fontFamily: font, background: color.bg }}>
-      <aside
-        style={{
-          width: '260px',
-          background: color.surface,
-          borderRight: `1px solid ${color.border}`,
-          display: 'flex',
-          flexDirection: 'column',
-          flexShrink: 0,
-        }}
-      >
+    <div className="chat-page-root">
+      <aside className="chat-page-sidebar">
         {isAdmin && (
           <button
             onClick={() => navigate('/documents')}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
-              padding: '14px 16px', borderBottom: `1px solid ${color.border}`,
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              fontSize: '13px', fontWeight: 500, color: color.textSecondary, textAlign: 'left',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = color.adminAccent)}
-            onMouseLeave={(e) => (e.currentTarget.style.color = color.textSecondary)}
+            className="chat-page-sidebar-link"
+            aria-label="Back to dashboard"
           >
             <ArrowLeft size={15} strokeWidth={2} />
             Back to dashboard
           </button>
         )}
 
-        <div style={{ padding: '16px', borderBottom: `1px solid ${color.border}` }}>
+        <div className="chat-page-sidebar-top">
           <button
             onClick={handleNewChat}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
-              padding: '10px 12px', borderRadius: radius.sm,
-              background: color.chatAccentSoft, color: color.chatAccentHover,
-              border: 'none', cursor: 'pointer', fontSize: '13.5px', fontWeight: 600,
-            }}
+            className="chat-page-button chat-page-button-primary"
           >
             <Plus size={16} strokeWidth={2.25} />
             New chat
           </button>
         </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '10px 10px' }}>
-          <div style={{ fontSize: '10.5px', fontWeight: 600, color: color.textTertiary, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '6px 8px' }}>
-            Chats
-          </div>
+        <div className="chat-page-sidebar-list">
+          <div className="chat-page-sidebar-heading">Chats</div>
           {conversations.map((c) => (
             <button
               key={c.id}
               onClick={() => setActiveId(c.id)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
-                padding: '9px 10px', borderRadius: radius.sm, marginBottom: '2px',
-                background: c.id === activeId ? color.chatAccentSoft : 'transparent',
-                color: c.id === activeId ? color.chatAccentHover : color.textSecondary,
-                border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 500,
-                textAlign: 'left', overflow: 'hidden',
-              }}
+              className={`chat-page-chat-item ${c.id === activeId ? 'active' : ''}`}
+              aria-current={c.id === activeId ? 'page' : undefined}
             >
-              <MessageSquare size={14} style={{ flexShrink: 0 }} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {c.title}
-              </span>
+              <MessageSquare size={14} />
+              <span className="chat-page-chat-title">{c.title}</span>
             </button>
           ))}
         </div>
 
-        <div style={{ borderTop: `1px solid ${color.border}`, padding: '10px' }}>
+        <div className="chat-page-sidebar-footer">
           <button
             onClick={handleLogout}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
-              padding: '10px 12px', borderRadius: radius.sm,
-              background: 'transparent', border: 'none', cursor: 'pointer',
-              fontSize: '13.5px', fontWeight: 500, color: color.textSecondary, textAlign: 'left',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = color.danger)}
-            onMouseLeave={(e) => (e.currentTarget.style.color = color.textSecondary)}
+            className="chat-page-sidebar-link"
+            aria-label="Log out"
           >
             <LogOut size={15} strokeWidth={2} />
             Log out
@@ -246,95 +214,70 @@ export default function ChatPage({ role }: ChatPageProps) {
         </div>
       </aside>
 
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 0' }}>
-          <div style={{ maxWidth: '760px', margin: '0 auto', padding: '0 24px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <main className="chat-page-main">
+        <div className="chat-page-content-wrap">
+          <div className="chat-page-content">
             {active.messages.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '80px 20px', color: color.textTertiary }}>
-                <div style={{ fontSize: '16px', fontWeight: 600, color: color.textPrimary, marginBottom: '6px' }}>
-                  Ask about your documents
-                </div>
-                <div style={{ fontSize: '13.5px' }}>
-                  Results are scoped to what your role can access.
-                </div>
+              <div className="chat-page-empty-state">
+                <div className="chat-page-empty-title">Ask about your documents</div>
+                <div className="chat-page-empty-subtitle">Results are scoped to what your role can access.</div>
               </div>
             )}
 
             {active.messages.map((m) => (
               <div key={m.id}>
                 {m.role === 'user' ? (
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <div
-                      style={{
-                        maxWidth: '75%', padding: '10px 16px', borderRadius: '16px 16px 4px 16px',
-                        background: color.chatAccent, color: '#fff', fontSize: '14px', lineHeight: 1.5,
-                      }}
-                    >
-                      {m.query}
-                    </div>
+                  <div className="chat-page-message-row user-message-row">
+                    <div className="chat-page-message-bubble user-message-bubble">{m.query}</div>
                   </div>
                 ) : m.error ? (
-                  <div style={{ padding: '14px 16px', background: color.dangerSoft, color: color.danger, borderRadius: radius.md, fontSize: '13.5px' }}>
-                    {m.error}
-                  </div>
-                ) : !m.hasAnswer ? (
-                  <div style={{ padding: '20px', background: color.surface, border: `1px solid ${color.border}`, borderRadius: radius.lg }}>
-                    <div style={{ fontSize: '14px', fontWeight: 500, color: color.textPrimary, marginBottom: '4px' }}>
-                      No confident answer found
-                    </div>
-                    <div style={{ fontSize: '13px', color: color.textSecondary }}>
-                      Try rephrasing your question, or check that the right documents have been uploaded.
-                    </div>
-                  </div>
+                  <div className="chat-page-message-error">{m.error}</div>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <div style={{ fontSize: '12px', color: color.textTertiary, marginBottom: '2px' }}>
-                      {m.results?.length} source{m.results?.length !== 1 ? 's' : ''} found
-                    </div>
-                    {m.results?.map((r, i) => {
+                  <div className="chat-page-message-column">
+                    {m.answer ? (
+                      <div className="chat-page-message-answer">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.answer}</ReactMarkdown>
+                      </div>
+                    ) : null}
+
+                    <div className="chat-page-results-list">
+                      <div className="chat-page-results-summary">
+                        {m.results?.length} source{m.results?.length !== 1 ? 's' : ''} found
+                      </div>
+                      {m.results?.map((r, i) => {
                       const pct = confidencePercent(r)
                       const cColor = confidenceColor(pct)
                       return (
-                        <div
-                          key={r.chunk_id || i}
-                          style={{ padding: '14px 16px', background: color.surface, borderRadius: radius.md, border: `1px solid ${color.border}` }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                              <FileText size={14} style={{ color: color.textTertiary, flexShrink: 0 }} />
-                              <span style={{ fontSize: '13px', fontWeight: 500, color: color.textPrimary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div key={r.chunk_id || i} className="chat-page-result-card">
+                          <div className="chat-page-result-header">
+                            <div className="chat-page-result-meta">
+                              <FileText size={14} />
+                              <span className="chat-page-result-title">
                                 {r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}
                               </span>
-                              <span
-                                style={{
-                                  fontSize: '10px', fontWeight: 600, padding: '2px 7px', borderRadius: '20px',
-                                  background: color.chatAccentSoft, color: color.chatAccentHover,
-                                  textTransform: 'uppercase', letterSpacing: '0.02em', flexShrink: 0,
-                                }}
-                              >
-                                {r.search_type}
-                              </span>
+                              <span className="chat-page-result-badge">{r.search_type}</span>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
-                              <span style={{ fontSize: '11.5px', fontWeight: 600, color: cColor }}>{pct.toFixed(0)}%</span>
-                              <div style={{ width: '56px', height: '4px', borderRadius: '2px', background: color.border, overflow: 'hidden' }}>
-                                <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', background: cColor }} />
-                              </div>
+                            <div className="chat-page-result-score">
+                              <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{pct.toFixed(0)}%</span>
+                              <progress
+                                value={Math.min(pct, 100)}
+                                max={100}
+                                className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}
+                              />
                             </div>
                           </div>
-                          <div style={{ fontSize: '12.5px', color: color.textSecondary, lineHeight: 1.5 }}>
-                            {r.text_preview}
-                          </div>
+                          <div className="chat-page-result-preview">{r.text_preview}</div>
                         </div>
                       )
                     })}
                   </div>
+                </div>
                 )}
               </div>
             ))}
 
             {loading && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: color.textTertiary, fontSize: '13px' }}>
+              <div className="chat-page-loading">
                 <Loader2 size={14} className="animate-spin" />
                 Searching...
               </div>
@@ -343,31 +286,20 @@ export default function ChatPage({ role }: ChatPageProps) {
           </div>
         </div>
 
-        <form onSubmit={handleSend} style={{ padding: '16px 24px 24px', borderTop: `1px solid ${color.border}` }}>
-          <div style={{ maxWidth: '760px', margin: '0 auto', display: 'flex', gap: '10px' }}>
+        <form onSubmit={handleSend} className="chat-page-form">
+          <div className="chat-page-form-row">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask a question about your documents..."
-              style={{
-                flex: 1, padding: '12px 16px', fontSize: '14.5px', fontFamily: font,
-                border: `1px solid ${color.border}`, borderRadius: radius.md, outline: 'none',
-                background: color.surface, color: color.textPrimary,
-              }}
-              onFocus={(e) => (e.currentTarget.style.borderColor = color.chatAccent)}
-              onBlur={(e) => (e.currentTarget.style.borderColor = color.border)}
+              className="chat-page-input"
             />
             <button
               type="submit"
               disabled={loading || !input.trim()}
-              style={{
-                padding: '12px 18px',
-                background: loading || !input.trim() ? color.borderStrong : color.chatAccent,
-                color: '#fff', border: 'none', borderRadius: radius.md,
-                cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
+              className="chat-page-send-button"
+              aria-label="Send message"
             >
               <Send size={16} />
             </button>

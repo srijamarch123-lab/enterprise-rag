@@ -11,7 +11,7 @@ POST /api/auth/reset-password/confirm
 
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
-
+import logging
 
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -36,6 +36,8 @@ from app.services.auth import (
 )
 
 from app.config.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -100,55 +102,59 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-
 def login(
     req: LoginRequest,
     response: Response,
     request: Request,
     db: Session = Depends(get_db),
 ):
+    try:
+        user = db.query(User).filter(User.email == req.email.lower().strip()).first()
+        if not user or not verify_password(req.password, user.hashed_password):
+            # Log failed attempt - we don't know the user exists, try to find by email for logging
+            failed_user = db.query(User).filter(User.email == req.email.lower().strip()).first()
+            _log(
+                db,
+                user_id=failed_user.id if failed_user else None,
+                action="login_failed",
+                ip_address=request.client.host if request.client else None,
+                details={"reason": "invalid_password" if failed_user else "user_not_found"}
+            )
+            raise HTTPException(401, "Invalid email or password")
+        if not user.is_active:
+            # Log disabled account attempt
+            _log(
+                db,
+                user_id=user.id,
+                action="login_failed",
+                ip_address=request.client.host if request.client else None,
+                details={"reason": "account_disabled"}
+            )
+            raise HTTPException(403, "Account disabled")
 
-    user = db.query(User).filter(User.email == req.email.lower().strip()).first()
-    if not user or not verify_password(req.password, user.hashed_password):
-        # Log failed attempt - we don't know the user exists, try to find by email for logging
-        failed_user = db.query(User).filter(User.email == req.email.lower().strip()).first()
-        _log(
-            db,
-            user_id=failed_user.id if failed_user else None,
-            action="login_failed",
-            ip_address=request.client.host if request.client else None,
-            details={"reason": "invalid_password" if failed_user else "user_not_found"}
-        )
-        raise HTTPException(401, "Invalid email or password")
-    if not user.is_active:
-        # Log disabled account attempt
-        _log(
-            db,
-            user_id=user.id,
-            action="login_failed",
-            ip_address=request.client.host if request.client else None,
-            details={"reason": "account_disabled"}
-        )
-        raise HTTPException(403, "Account disabled")
+        payload = {"sub": str(user.id), "role": user.role, "tv": user.token_version}
+        access_token = create_access_token(payload)
+        refresh_token = create_refresh_token(payload)
 
-    payload = {"sub": str(user.id), "role": user.role, "tv": user.token_version}
-    access_token = create_access_token(payload)
-    refresh_token = create_refresh_token(payload)
+        # HttpOnly cookie storage (prevents JS access => mitigates XSS token theft)
+        # max_age aligns with token expiry (seconds). Using simple conversion.
+        access_max_age = 60 * get_settings().jwt_access_token_expire_minutes
+        refresh_max_age = 60 * 60 * 24 * get_settings().jwt_refresh_token_expire_days
 
-    # HttpOnly cookie storage (prevents JS access => mitigates XSS token theft)
-    # max_age aligns with token expiry (seconds). Using simple conversion.
-    access_max_age = 60 * get_settings().jwt_access_token_expire_minutes
-    refresh_max_age = 60 * 60 * 24 * get_settings().jwt_refresh_token_expire_days
+        set_jwt_cookie(response, "access_token", access_token, max_age=int(access_max_age))
+        set_jwt_cookie(response, "refresh_token", refresh_token, max_age=int(refresh_max_age))
 
-    set_jwt_cookie(response, "access_token", access_token, max_age=int(access_max_age))
-    set_jwt_cookie(response, "refresh_token", refresh_token, max_age=int(refresh_max_age))
+        user.last_login = datetime.utcnow()
+        db.commit()
+        _log(db, user.id, "login", ip_address=request.client.host, details={"email": user.email, "role": str(user.role)})
 
-
-    user.last_login = datetime.utcnow()
-    db.commit()
-    _log(db, user.id, "login", ip_address=request.client.host, details={"email": user.email, "role": str(user.role)})
-
-    return {"role": user.role, "message": "Logged in"}
+        return {"role": user.role, "message": "Logged in"}
+    
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (401, 403, etc.)
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}", exc_info=True)
+        raise HTTPException(500, "Internal server error")
 
 
 

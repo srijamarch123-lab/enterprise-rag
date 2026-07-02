@@ -5,6 +5,25 @@ const api = axios.create({
   withCredentials: true,
 })
 
+// Add error interceptor to handle network and server errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Log errors for debugging
+    if (error.response) {
+      // Server responded with error status
+      console.error(`API Error [${error.response.status}]:`, error.response.data)
+    } else if (error.request) {
+      // Request was made but no response received
+      console.error("Network Error: No response from server", error.request)
+    } else {
+      // Error in request setup
+      console.error("Error:", error.message)
+    }
+    return Promise.reject(error)
+  }
+)
+
 export default api
 
 export const uploadFile = (file: File, department?: string) => {
@@ -71,3 +90,6 @@ export const importAllDriveFiles = (credentials_json: object, files: object[]) =
 
 export const search = (query: string, limit = 5, department?: string) =>
   api.post('/search', { query, limit, department }).then((r) => r.data)
+
+export const chat = (query: string, limit = 5, department?: string) =>
+  api.post('/chat', { query, limit, department }).then((r) => r.data)

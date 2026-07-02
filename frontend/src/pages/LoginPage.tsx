@@ -26,7 +26,23 @@ export default function LoginPage({ onLogin }: Props) {
         navigate("/", { replace: true })
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail ?? "Login failed")
+      // Handle different error types
+      if (err.response?.status === 500) {
+        console.error("Server Error (500):", err.response?.data)
+        setError("A server error occurred. Check backend logs for details. Please try again later.")
+      } else if (err.response?.status === 401) {
+        console.error("Unauthorized (401):", err.response?.data)
+        setError("Invalid email or password.")
+      } else if (err.response?.status === 422) {
+        console.error("Validation Error (422):", err.response?.data)
+        setError("Please check your email and password format.")
+      } else if (err.message === "Network Error") {
+        console.error("Network Error:", err)
+        setError("Cannot reach the server. Is the backend running on localhost:8000?")
+      } else {
+        console.error("Login failed:", err)
+        setError(err.response?.data?.detail ?? "Login failed. Please try again.")
+      }
     } finally {
       setLoading(false)
     }
@@ -47,22 +63,26 @@ export default function LoginPage({ onLogin }: Props) {
         )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
+              id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              placeholder="you@example.com"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
+              id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              placeholder="Enter your password"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
             />
           </div>
