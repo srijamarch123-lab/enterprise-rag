@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 router = APIRouter(prefix="/api", tags=["search"])
 
+# Phase 4.3 spec: keep top 5 after re-ranking, regardless of retrieval limit
+RERANK_TOP_K = 5
+CONFIDENCE_THRESHOLD = 0.72
+
 
 class SearchRequest(BaseModel):
     query: str
@@ -306,9 +310,18 @@ def search(
         merged_results, has_answer = _merge_results(
             semantic_hits,
             bm25_results,
-            top_k=top_k,
-            confidence_threshold=0.3,
+            top_k=RERANK_TOP_K,
+            confidence_threshold=CONFIDENCE_THRESHOLD,
         )
+
+        # Source attribution (Phase 4.3): attach file_path from DB for every
+        # returned chunk (covers both semantic and bm25 results, since Qdrant
+        # payload doesn't store file_path).
+        for r in merged_results:
+            if r.get("document_id"):
+                doc = db.query(Document).filter(Document.id == r["document_id"]).first()
+                if doc:
+                    r["file_path"] = doc.file_path
 
         return {
             "query": req.query,

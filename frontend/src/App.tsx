@@ -1,10 +1,9 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+﻿import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getMe } from './services/api'
-
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
-import SearchPage from './pages/SearchPage'
+import ChatPage from './pages/ChatPage'
 import AdminLayout from './components/AdminLayout'
 import DocumentsPage from './pages/DocumentsPage'
 import ProcessingPage from './pages/ProcessingPage'
@@ -24,11 +23,9 @@ export default function App() {
       .finally(() => setLoading(false))
   }, [])
 
-  const handleLogout = () => setRole(null)
-
   if (loading) {
     return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, system-ui, sans-serif', color: '#7a9a7a', fontSize: '14px' }}>
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, system-ui, sans-serif', color: '#63604F', fontSize: '14px' }}>
         Loading...
       </div>
     )
@@ -44,12 +41,13 @@ export default function App() {
     )
   }
 
-  if (role === 'admin') {
-    return (
-      <Routes>
-        <Route path="/" element={<AdminLayout />}>
-          <Route index element={<Navigate to="/chat" replace />} />
-          <Route path="chat" element={<SearchPage onLogout={handleLogout} />} />
+  return (
+    <Routes>
+      <Route path="/chat" element={<ChatPage role={role} />} />
+
+      {role === 'admin' && (
+        <Route path="/" element={<AdminLayout role={role} />}>
+          <Route index element={<Navigate to="/documents" replace />} />
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="processing" element={<ProcessingPage />} />
           <Route path="drive" element={<DrivePage />} />
@@ -57,14 +55,8 @@ export default function App() {
           <Route path="user-log" element={<UserLogPage />} />
           <Route path="add-admin" element={<AddAdminPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/chat" replace />} />
-      </Routes>
-    )
-  }
+      )}
 
-  return (
-    <Routes>
-      <Route path="/chat" element={<SearchPage onLogout={handleLogout} />} />
       <Route path="*" element={<Navigate to="/chat" replace />} />
     </Routes>
   )
