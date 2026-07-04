@@ -103,17 +103,97 @@ class LLMService:
             logger.exception("Unexpected error calling OpenAI chat completion.")
             raise
 
+    @retry(
+        retry=retry_if_exception_type((RateLimitError, APIConnectionError, Timeout, APIError)),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
+    def stream_chat_completion(self, messages: List[dict[str, str]], max_tokens: int = 1024):
+        try:
+            response = openai.ChatCompletion.create(
+                model=self.model,
+                messages=messages,
+                temperature=self.temperature,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            for chunk in response:
+                choices = getattr(chunk, "choices", None) or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content", "")
+                if content:
+                    yield content
+        except RateLimitError as exc:
+            logger.warning("OpenAI rate limit encountered, retrying: %s", exc)
+            raise
+        except (APIConnectionError, Timeout) as exc:
+            logger.warning("OpenAI connection error, retrying: %s", exc)
+            raise
+        except APIError as exc:
+            logger.error("OpenAI API error: %s", exc)
+            raise
+        except Exception as exc:
+            logger.exception("Unexpected error during streamed chat completion.")
+            raise
 
-def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
-    """Build the answer text from query and retrieved chunk context."""
+
+def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
+    """Create a simple answer from retrieved chunks when LLM calls are unavailable."""
     if not chunks:
-        return ""
+        return "I don't know based on the provided documents."
+
+    relevant = []
+    for chunk in chunks[:3]:
+        text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
+        if text:
+            relevant.append(text)
+
+    if not relevant:
+        return "I don't know based on the provided documents."
+
+    excerpt = " ".join(relevant[:2])
+    excerpt = " ".join(excerpt.split())
+    if len(excerpt) > 900:
+        excerpt = excerpt[:900] + "..."
+
+    return (
+        f"Based on the available document context, the relevant information is: {excerpt}\n\n"
+        "Sources: " + ", ".join(
+            str(chunk.get("document_id") or chunk.get("chunk_id") or "document")
+            for chunk in chunks[:3]
+        )
+    )
+
+
+def build_chat_prompt(
+    query: str,
+    chunks: list[dict[str, Any]],
+    history_messages: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, str]]:
+    """Build a chat completion prompt from retrieved chunks and recent conversation history."""
+    if not chunks:
+        return []
 
     context_text = assemble_context(chunks)
     if not context_text:
-        return ""
+        return []
 
-    messages = [
+    history_block = ""
+    if history_messages:
+        history_lines: list[str] = []
+        for entry in history_messages[-6:]:
+            role = (entry.get("role") or "user").strip().lower()
+            content = (entry.get("content") or "").strip()
+            if not content:
+                continue
+            history_lines.append(f"{role.capitalize()}: {content}")
+        if history_lines:
+            history_block = "Conversation history:\n" + "\n".join(history_lines) + "\n\n"
+
+    return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
@@ -121,6 +201,7 @@ def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
                 "Answer the user's question using only the following document context. "
                 "Do not invent facts or use any information outside the context. "
                 "If the answer cannot be determined from the context, say: 'I don't know based on the provided documents.'\n\n"
+                f"{history_block}"
                 f"Question: {query}\n\n"
                 "Context:\n"
                 f"{context_text}"
@@ -128,5 +209,19 @@ def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
         },
     ]
 
-    llm = LLMService()
-    return llm.chat_completion(messages=messages, max_tokens=900)
+
+def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
+    """Build the answer text from query and retrieved chunk context."""
+    if not chunks:
+        return "I don't know based on the provided documents."
+
+    messages = build_chat_prompt(query, chunks)
+    if not messages:
+        return build_fallback_answer(query, chunks)
+
+    try:
+        llm = LLMService()
+        return llm.chat_completion(messages=messages, max_tokens=900)
+    except Exception as exc:
+        logger.warning("Falling back to local answer generation: %s", exc)
+        return build_fallback_answer(query, chunks)

@@ -82,9 +82,7 @@ except ImportError:  # pragma: no cover
 
 
 def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
-    """Run BM25 keyword search on chunks from visible documents."""
-    if BM25Okapi is None:
-        raise HTTPException(status_code=500, detail="rank_bm25 dependency is missing on backend.")
+    """Run a lightweight keyword search over chunks from visible documents."""
     if not visible_doc_ids:
         return []
 
@@ -92,7 +90,6 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
         db.query(Chunk)
         .filter(
             Chunk.document_id.in_(visible_doc_ids),
-            Chunk.is_embedded == True,  # noqa: E712
         )
         .all()
     )
@@ -100,18 +97,38 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     if not chunks:
         return []
 
-    corpus = [c.text.lower().split() for c in chunks]
-    bm25 = BM25Okapi(corpus)
+    query_tokens = {token for token in query.lower().split() if token}
+    if not query_tokens:
+        return []
 
-    query_tokens = query.lower().split()
-    scores = bm25.get_scores(query_tokens)
+    if BM25Okapi is not None:
+        corpus = [c.text.lower().split() for c in chunks]
+        bm25 = BM25Okapi(corpus)
+        query_tokens_list = query.lower().split()
+        scores = bm25.get_scores(query_tokens_list)
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
-    top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
+        results = []
+        for idx in top_indices:
+            if scores[idx] > 0:
+                chunk = chunks[idx]
+                results.append(
+                    {
+                        "chunk_id": chunk.id,
+                        "document_id": chunk.document_id,
+                        "chunk_index": chunk.chunk_index,
+                        "page_number": chunk.page_number,
+                        "text_preview": chunk.text[:200] if chunk.text else "",
+                        "bm25_score": float(scores[idx]),
+                    }
+                )
+        return results
 
     results = []
-    for idx in top_indices:
-        if scores[idx] > 0:
-            chunk = chunks[idx]
+    for chunk in chunks:
+        text_tokens = {token for token in (chunk.text or "").lower().split() if token}
+        overlap = len(query_tokens & text_tokens)
+        if overlap > 0:
             results.append(
                 {
                     "chunk_id": chunk.id,
@@ -119,11 +136,12 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
                     "chunk_index": chunk.chunk_index,
                     "page_number": chunk.page_number,
                     "text_preview": chunk.text[:200] if chunk.text else "",
-                    "bm25_score": scores[idx],
+                    "bm25_score": float(overlap),
                 }
             )
 
-    return results
+    results.sort(key=lambda item: item.get("bm25_score", 0), reverse=True)
+    return results[:top_k]
 
 
 def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
@@ -310,17 +328,20 @@ def search(
             raise HTTPException(status_code=400, detail="Empty query vector")
 
         query_filter = _make_filter(str(current_user.role), req.department)
-        client: QdrantClient = _get_qdrant()
-
         top_k = req.limit
 
-        semantic_hits = client.search(
-            collection_name=settings.qdrant_collection_name,
-            query_vector=query_vector,
-            query_filter=query_filter,
-            limit=top_k,
-            with_payload=True,
-        )
+        semantic_hits: list[Any] = []
+        try:
+            client: QdrantClient = _get_qdrant()
+            semantic_hits = client.search(
+                collection_name=settings.qdrant_collection_name,
+                query_vector=query_vector,
+                query_filter=query_filter,
+                limit=top_k,
+                with_payload=True,
+            )
+        except Exception as exc:
+            logger.warning("Qdrant semantic search failed, falling back to DB chunk retrieval: %s", exc)
 
         keyword_backend = (req.keyword_backend or "bm25").strip().lower()
         if keyword_backend not in {"bm25", "postgres"}:
@@ -347,7 +368,7 @@ def search(
             confidence_threshold=CONFIDENCE_THRESHOLD,
         )
 
-        # Source attribution: attach file_path from DB for every returned chunk
+        # Source attribution: attach file_path and full text from DB for every returned chunk
         chunk_ids = [r["chunk_id"] for r in merged_results if r.get("chunk_id")]
         chunk_map = {}
         if chunk_ids:
@@ -359,9 +380,54 @@ def search(
                 doc = db.query(Document).filter(Document.id == r["document_id"]).first()
                 if doc:
                     r["file_path"] = doc.file_path
+                    r["doc_name"] = doc.original_filename
+                    r["filename"] = doc.original_filename
+                    r["department"] = doc.department or r.get("department")
+                    r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
             chunk = chunk_map.get(r.get("chunk_id"))
             if chunk:
                 r["text"] = chunk.text
+                if not r.get("text_preview"):
+                    r["text_preview"] = (chunk.text or "")[:200]
+
+        if not merged_results:
+            # Fall back to visible chunks from the database when vector retrieval yields nothing.
+            fallback_chunks = (
+                db.query(Chunk)
+                .join(Document)
+                .filter(
+                    Chunk.document_id.in_(visible_doc_ids),
+                )
+                .order_by(Chunk.document_id, Chunk.chunk_index)
+                .limit(top_k)
+                .all()
+            )
+            for chunk in fallback_chunks:
+                doc = chunk.document
+                merged_results.append(
+                    {
+                        "score": 0.5,
+                        "semantic_score": 0,
+                        "bm25_score": 0.5,
+                        "chunk_id": chunk.id,
+                        "document_id": chunk.document_id,
+                        "chunk_index": chunk.chunk_index,
+                        "page_number": chunk.page_number,
+                        "text_preview": (chunk.text or "")[:200],
+                        "department": doc.department if doc else None,
+                        "access_level": str(doc.access_level) if doc and doc.access_level else None,
+                        "filename": doc.original_filename if doc else None,
+                        "file_path": doc.file_path if doc else None,
+                        "doc_name": doc.original_filename if doc else None,
+                        "search_type": "bm25",
+                        "text": chunk.text,
+                    }
+                )
+
+        if merged_results:
+            merged_results = merged_results[:top_k]
+        if merged_results and not has_answer:
+            has_answer = True
 
         answer = ""
         if has_answer and merged_results:

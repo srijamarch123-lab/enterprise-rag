@@ -310,6 +310,40 @@
   gap: 10px;
 }
 
+.chat-page-suggestion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.chat-page-suggestion-chip {
+  border: 1px solid #DAD4C6;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #F7F5F1;
+  color: #405C74;
+  cursor: pointer;
+}
+
+.chat-page-feedback-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chat-page-feedback-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid #DAD4C6;
+  border-radius: 999px;
+  background: #fff;
+  color: #63604F;
+  cursor: pointer;
+}
+
 .chat-page-input {
   flex: 1;
   padding: 12px 16px;

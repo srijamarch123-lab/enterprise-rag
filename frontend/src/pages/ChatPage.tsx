@@ -1,6 +1,6 @@
 ﻿import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2 } from 'lucide-react'
+import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import api from '../services/api'
@@ -9,7 +9,6 @@ import { theme } from '../theme'
 import './ChatPage.css'
 
 const { color, font, radius } = theme
-const STORAGE_KEY = 'enterprise_rag_chat_conversations'
 
 interface SearchResult {
   score: number
@@ -35,14 +34,17 @@ interface SearchResult {
 }
 
 interface ChatMessage {
-  id: string
+  id: string | number
   role: 'user' | 'assistant'
+  content?: string
   query?: string
   answer?: string
   results?: SearchResult[]
   hasAnswer?: boolean
   normalizedQuery?: string
   error?: string
+  metadata?: Record<string, any>
+  suggestions?: string[]
 }
 
 interface Conversation {
@@ -68,26 +70,6 @@ function newConversation(): Conversation {
   return { id: crypto.randomUUID(), title: 'New chat', messages: [] }
 }
 
-function loadConversations(): Conversation[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return [newConversation()]
-    const parsed = JSON.parse(raw)
-    if (Array.isArray(parsed) && parsed.length > 0) return parsed
-    return [newConversation()]
-  } catch {
-    return [newConversation()]
-  }
-}
-
-function saveConversations(conversations: Conversation[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations))
-  } catch {
-    // storage full or unavailable - fail silently, chat still works in-session
-  }
-}
-
 interface ChatPageProps {
   role?: string
 }
@@ -96,17 +78,32 @@ export default function ChatPage({ role }: ChatPageProps) {
   const navigate = useNavigate()
   const isAdmin = role === 'admin'
 
-  const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations())
-  const [activeId, setActiveId] = useState(conversations[0].id)
+  const [conversations, setConversations] = useState<Conversation[]>([newConversation()])
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [listening, setListening] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const recognitionRef = useRef<any>(null)
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0]
 
   useEffect(() => {
-    saveConversations(conversations)
-  }, [conversations])
+    const loadSessions = async () => {
+      try {
+        const { data } = await api.get('/chat/sessions')
+        if (Array.isArray(data) && data.length > 0) {
+          const loaded = data.map((s: any) => ({ id: String(s.id), title: s.title || 'New chat', messages: [] }))
+          setConversations(loaded)
+          setActiveId(loaded[0].id)
+        }
+      } catch {
+        setConversations([newConversation()])
+        setActiveId(null)
+      }
+    }
+    loadSessions()
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -116,51 +113,137 @@ export default function ChatPage({ role }: ChatPageProps) {
     try { await logout() } finally { window.location.href = '/login' }
   }
 
-  const handleNewChat = () => {
-    const conv = newConversation()
-    setConversations((prev) => [conv, ...prev])
-    setActiveId(conv.id)
+  const handleNewChat = async () => {
+    try {
+      const { data } = await api.post('/chat/sessions', { title: 'New chat' })
+      const conv = { id: String(data.id), title: data.title || 'New chat', messages: [] }
+      setConversations((prev) => [conv, ...prev])
+      setActiveId(conv.id)
+    } catch {
+      const conv = newConversation()
+      setConversations((prev) => [conv, ...prev])
+      setActiveId(conv.id)
+    }
   }
 
-  const updateActive = (updater: (c: Conversation) => Conversation) => {
-    setConversations((prev) => prev.map((c) => (c.id === activeId ? updater(c) : c)))
+  const loadSessionMessages = async (sessionId: string) => {
+    try {
+      const { data } = await api.get(`/chat/sessions/${sessionId}`)
+      const mappedMessages = (data.messages || []).map((m: any) => {
+        const metadataResults = Array.isArray(m?.metadata?.results) ? m.metadata.results : []
+        return {
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          answer: m.role === 'assistant' ? m.content : undefined,
+          query: m.role === 'user' ? m.content : undefined,
+          results: metadataResults,
+          hasAnswer: typeof m?.metadata?.has_answer === 'boolean' ? m.metadata.has_answer : undefined,
+          suggestions: ['Summarize the sources', 'Show the key points'],
+        }
+      })
+      setConversations((prev) => prev.map((c) => (c.id === sessionId ? { ...c, messages: mappedMessages } : c)))
+    } catch {
+      // ignore load failures and keep local state
+    }
   }
 
-  const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSend = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
     const query = input.trim()
     if (!query || loading) return
 
+    let currentActiveId = activeId
+    if (!currentActiveId) {
+      const { data } = await api.post('/chat/sessions', { title: 'New chat' })
+      currentActiveId = String(data.id)
+      const conv = { id: currentActiveId, title: data.title || 'New chat', messages: [] }
+      setConversations((prev) => [conv, ...prev])
+      setActiveId(currentActiveId)
+    }
+
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', query }
-    updateActive((c) => ({
-      ...c,
-      title: c.messages.length === 0 ? query.slice(0, 40) : c.title,
-      messages: [...c.messages, userMsg],
-    }))
+    setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, title: c.messages.length === 0 ? query.slice(0, 40) : c.title, messages: [...c.messages, userMsg] } : c)))
     setInput('')
     setLoading(true)
+    setActiveId(currentActiveId)
 
     try {
-      const res = await api.post('/chat', { query, limit: 5 })
-      const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        answer: res.data.answer || '',
-        results: res.data.results || [],
-        hasAnswer: res.data.has_answer ?? true,
-        normalizedQuery: res.data.normalized_query || '',
+      const response = await fetch(`/api/chat/sessions/${currentActiveId}/messages/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ content: query }),
+      })
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('Streaming not available')
+      const decoder = new TextDecoder()
+      let streamed = ''
+      let parsedResults: SearchResult[] = []
+      let hasAnswer = true
+      const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', answer: '', results: [], hasAnswer: true, suggestions: ['Summarize the sources', 'Show the key points'] }
+      setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        const chunk = decoder.decode(value)
+        const parts = chunk.split('\n\n')
+        for (const part of parts) {
+          const trimmed = part.trim()
+          if (!trimmed) continue
+
+          const lines = trimmed.split('\n').map((line) => line.trim())
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue
+            const data = line.slice(5).trim()
+            if (!data || data === '{}' || data === 'done' || data === 'error') continue
+            if (data.startsWith('{') && data.endsWith('}')) {
+              try {
+                const parsed = JSON.parse(data)
+                if (typeof parsed.answer === 'string') streamed = parsed.answer
+                if (Array.isArray(parsed.results)) parsedResults = parsed.results
+                if (typeof parsed.has_answer === 'boolean') hasAnswer = parsed.has_answer
+              } catch {
+                streamed += data
+              }
+            } else {
+              streamed += data
+            }
+            setConversations((prev) => prev.map((c) => c.id === currentActiveId ? { ...c, messages: c.messages.map((m) => m.id === assistantMsg.id ? { ...m, answer: streamed, results: parsedResults, hasAnswer } : m) } : c))
+          }
+        }
       }
-      updateActive((c) => ({ ...c, messages: [...c.messages, assistantMsg] }))
     } catch (err: any) {
-      const assistantMsg: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        error: err.response?.data?.detail || 'Search failed',
-      }
-      updateActive((c) => ({ ...c, messages: [...c.messages, assistantMsg] }))
+      const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', error: err.response?.data?.detail || err.message || 'Chat failed' }
+      setConversations((prev) => prev.map((c) => c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c))
     } finally {
       setLoading(false)
     }
+  }
+
+  const startVoiceInput = () => {
+    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
+    if (!SpeechRecognition) {
+      window.alert('Voice input is not supported in this browser.')
+      return
+    }
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-US'
+    recognition.interimResults = false
+    recognition.continuous = false
+    recognitionRef.current = recognition
+    recognition.onstart = () => setListening(true)
+    recognition.onerror = () => setListening(false)
+    recognition.onend = () => setListening(false)
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results).map((r: any) => r[0].transcript).join(' ')
+      setInput(transcript)
+      if (transcript.trim()) {
+        void handleSend()
+      }
+    }
+    recognition.start()
   }
 
   return (
@@ -192,7 +275,10 @@ export default function ChatPage({ role }: ChatPageProps) {
           {conversations.map((c) => (
             <button
               key={c.id}
-              onClick={() => setActiveId(c.id)}
+              onClick={() => {
+                setActiveId(c.id)
+                void loadSessionMessages(c.id)
+              }}
               className={`chat-page-chat-item ${c.id === activeId ? 'active' : ''}`}
               aria-current={c.id === activeId ? 'page' : undefined}
             >
@@ -228,7 +314,7 @@ export default function ChatPage({ role }: ChatPageProps) {
               <div key={m.id}>
                 {m.role === 'user' ? (
                   <div className="chat-page-message-row user-message-row">
-                    <div className="chat-page-message-bubble user-message-bubble">{m.query}</div>
+                    <div className="chat-page-message-bubble user-message-bubble">{m.query || m.content}</div>
                   </div>
                 ) : m.error ? (
                   <div className="chat-page-message-error">{m.error}</div>
@@ -240,38 +326,57 @@ export default function ChatPage({ role }: ChatPageProps) {
                       </div>
                     ) : null}
 
-                    <div className="chat-page-results-list">
-                      <div className="chat-page-results-summary">
-                        {m.results?.length} source{m.results?.length !== 1 ? 's' : ''} found
-                      </div>
-                      {m.results?.map((r, i) => {
-                      const pct = confidencePercent(r)
-                      const cColor = confidenceColor(pct)
-                      return (
-                        <div key={r.chunk_id || i} className="chat-page-result-card">
-                          <div className="chat-page-result-header">
-                            <div className="chat-page-result-meta">
-                              <FileText size={14} />
-                              <span className="chat-page-result-title">
-                                {r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}
-                              </span>
-                              <span className="chat-page-result-badge">{r.search_type}</span>
-                            </div>
-                            <div className="chat-page-result-score">
-                              <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{pct.toFixed(0)}%</span>
-                              <progress
-                                value={Math.min(pct, 100)}
-                                max={100}
-                                className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}
-                              />
-                            </div>
-                          </div>
-                          <div className="chat-page-result-preview">{r.text_preview}</div>
+                    {m.results && m.results.length > 0 ? (
+                      <div className="chat-page-results-list">
+                        <div className="chat-page-results-summary">
+                          {m.results.length} source{m.results.length !== 1 ? 's' : ''} found
                         </div>
-                      )
-                    })}
+                        {m.results.map((r, i) => {
+                          const pct = confidencePercent(r)
+                          return (
+                            <div key={r.chunk_id || i} className="chat-page-result-card">
+                              <div className="chat-page-result-header">
+                                <div className="chat-page-result-meta">
+                                  <FileText size={14} />
+                                  <span className="chat-page-result-title">
+                                    {r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}
+                                  </span>
+                                  <span className="chat-page-result-badge">{r.search_type}</span>
+                                </div>
+                                <div className="chat-page-result-score">
+                                  <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{pct.toFixed(0)}%</span>
+                                  <progress
+                                    value={Math.min(pct, 100)}
+                                    max={100}
+                                    className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}
+                                  />
+                                </div>
+                              </div>
+                              <div className="chat-page-result-preview">{(r as any).text || r.text_preview}</div>
+                              {(r.file_path || r.path) ? (
+                                <div className="chat-page-result-path">{r.file_path || r.path}</div>
+                              ) : null}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : null}
+
+                    {m.suggestions && m.suggestions.length > 0 ? (
+                      <div className="chat-page-suggestion-row">
+                        {m.suggestions.map((suggestion) => (
+                          <button key={suggestion} className="chat-page-suggestion-chip" onClick={() => setInput(suggestion)}>
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <div className="chat-page-feedback-row">
+                      <button className="chat-page-feedback-button" aria-label="Helpful response"><ThumbsUp size={14} /> Yes</button>
+                      <button className="chat-page-feedback-button" aria-label="Unhelpful response"><ThumbsDown size={14} /> No</button>
+                    </div>
                   </div>
-                </div>
                 )}
               </div>
             ))}
@@ -295,6 +400,14 @@ export default function ChatPage({ role }: ChatPageProps) {
               placeholder="Ask a question about your documents..."
               className="chat-page-input"
             />
+            <button
+              type="button"
+              onClick={startVoiceInput}
+              className="chat-page-send-button"
+              aria-label="Voice input"
+            >
+              <Mic size={16} />
+            </button>
             <button
               type="submit"
               disabled={loading || !input.trim()}

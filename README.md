@@ -159,6 +159,3 @@ Copy these from your Colab project to this repo:
 | `My Drive/credentials.json` | `backend/credentials.json` |
 
 The `.env` file replaces all Colab `_secret()` calls.
-
----
-
