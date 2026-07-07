@@ -93,3 +93,19 @@ export const search = (query: string, limit = 5, department?: string) =>
 
 export const chat = (query: string, limit = 5, department?: string) =>
   api.post('/chat', { query, limit, department }).then((r) => r.data)
+
+export const submitFeedback = (messageId: number, isHelpful: boolean, comment?: string) =>
+  api.post('/feedback', { message_id: messageId, is_helpful: isHelpful, comment }).then((r) => r.data)
+
+export const getAdminFeedback = (params?: { status?: string; is_helpful?: boolean }) =>
+  api.get('/admin/feedback', { params }).then((r) => r.data)
+
+export const resolveFeedback = (feedbackId: number, status: string, adminNotes?: string) =>
+  api.put(`/admin/feedback/${feedbackId}`, { status, admin_notes: adminNotes }).then((r) => r.data)
+
+export const getFeedbackAnalytics = () =>
+  api.get('/admin/feedback-analytics').then((r) => r.data)
+
+export const getAuditMetrics = () =>
+  api.get('/admin/audit-metrics').then((r) => r.data)
+

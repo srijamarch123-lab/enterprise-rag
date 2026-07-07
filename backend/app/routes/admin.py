@@ -298,3 +298,54 @@ def promote_to_admin(
         details={"role": "admin", "promoted_by_email": True},
     )
     return {"message": f"{user.email} is now an admin", "user_id": user.id}
+
+
+@router.get("/audit-metrics", dependencies=[Depends(require_admin)])
+def get_audit_metrics(db: Session = Depends(get_db)):
+    from app.models import AuditLog
+    from sqlalchemy import func
+    from datetime import datetime, timedelta
+
+    # 1. Action distribution counts
+    action_counts = {}
+    actions = db.query(AuditLog.action, func.count(AuditLog.id)).group_by(AuditLog.action).all()
+    for action, count in actions:
+        action_counts[action] = count
+
+    # 2. Activity for last 7 days
+    today = datetime.utcnow().date()
+    daily_stats = []
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        start_dt = datetime.combine(day, datetime.min.time())
+        end_dt = datetime.combine(day, datetime.max.time())
+
+        login_count = db.query(func.count(AuditLog.id)).filter(
+            AuditLog.action == "login",
+            AuditLog.timestamp >= start_dt,
+            AuditLog.timestamp <= end_dt
+        ).scalar() or 0
+
+        feedback_count = db.query(func.count(AuditLog.id)).filter(
+            AuditLog.action == "submit_feedback",
+            AuditLog.timestamp >= start_dt,
+            AuditLog.timestamp <= end_dt
+        ).scalar() or 0
+
+        total_actions = db.query(func.count(AuditLog.id)).filter(
+            AuditLog.timestamp >= start_dt,
+            AuditLog.timestamp <= end_dt
+        ).scalar() or 0
+
+        daily_stats.append({
+            "date": day.strftime("%b %d"),
+            "logins": login_count,
+            "feedbacks": feedback_count,
+            "total_actions": total_actions
+        })
+
+    return {
+        "action_counts": action_counts,
+        "daily_stats": daily_stats
+    }
+

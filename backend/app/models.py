@@ -199,3 +199,28 @@ class AuditLog(Base):
 
     user: Mapped["User | None"] = relationship("User", back_populates="audit_logs")
 
+
+# ─── Feedback ────────────────────────────────────────────────────────────────
+
+class Feedback(Base):
+    __tablename__ = "feedbacks"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    message_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    is_helpful: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(50), default="flagged")  # flagged | reviewed | resolved
+    admin_notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Relations
+    message: Mapped["ChatMessage"] = relationship("ChatMessage")
+    user: Mapped["User"] = relationship("User")
+
+

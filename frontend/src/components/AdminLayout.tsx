@@ -1,4 +1,4 @@
-﻿import { Outlet, NavLink } from 'react-router-dom'
+import { Outlet, NavLink } from 'react-router-dom'
 import {
   FileText, HardDrive, Users, LogOut, Cpu,
   MessageSquare, ClipboardList, UserCheck, Shield,
@@ -11,6 +11,8 @@ const { color, font, radius } = theme
 const chatNav = [{ to: '/chat', icon: MessageSquare, label: 'Chat' }]
 
 const adminNav = [
+  { to: '/dashboard', icon: ClipboardList, label: 'Dashboard' },
+  { to: '/feedback', icon: MessageSquare, label: 'Feedback Review' },
   { to: '/documents', icon: FileText, label: 'Documents' },
   { to: '/processing', icon: Cpu, label: 'Processing' },
   { to: '/drive', icon: HardDrive, label: 'Google Drive' },
@@ -18,6 +20,7 @@ const adminNav = [
   { to: '/user-log', icon: ClipboardList, label: 'User Log' },
   { to: '/add-admin', icon: UserCheck, label: 'Add Admin' },
 ]
+
 
 interface AdminLayoutProps {
   role?: string

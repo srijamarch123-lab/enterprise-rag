@@ -1,12 +1,12 @@
-﻿import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import api from '../services/api'
-import { logout } from '../services/api'
+import api, { logout, submitFeedback } from '../services/api'
 import { theme } from '../theme'
 import './ChatPage.css'
+
 
 const { color, font, radius } = theme
 
@@ -45,6 +45,7 @@ interface ChatMessage {
   error?: string
   metadata?: Record<string, any>
   suggestions?: string[]
+  feedbackSubmitted?: 'up' | 'down'
 }
 
 interface Conversation {
@@ -85,6 +86,12 @@ export default function ChatPage({ role }: ChatPageProps) {
   const [listening, setListening] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
+
+  // Feedback collection states
+  const [feedbackMsgId, setFeedbackMsgId] = useState<number | string | null>(null)
+  const [feedbackHelpful, setFeedbackHelpful] = useState<boolean | null>(null)
+  const [feedbackComment, setFeedbackComment] = useState('')
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0]
 
@@ -131,6 +138,7 @@ export default function ChatPage({ role }: ChatPageProps) {
       const { data } = await api.get(`/chat/sessions/${sessionId}`)
       const mappedMessages = (data.messages || []).map((m: any) => {
         const metadataResults = Array.isArray(m?.metadata?.results) ? m.metadata.results : []
+        const metadataSuggestions = Array.isArray(m?.metadata?.suggestions) ? m.metadata.suggestions : []
         return {
           id: m.id,
           role: m.role,
@@ -139,7 +147,8 @@ export default function ChatPage({ role }: ChatPageProps) {
           query: m.role === 'user' ? m.content : undefined,
           results: metadataResults,
           hasAnswer: typeof m?.metadata?.has_answer === 'boolean' ? m.metadata.has_answer : undefined,
-          suggestions: ['Summarize the sources', 'Show the key points'],
+          suggestions: metadataSuggestions,
+          feedbackSubmitted: m?.metadata?.feedbackSubmitted,
         }
       })
       setConversations((prev) => prev.map((c) => (c.id === sessionId ? { ...c, messages: mappedMessages } : c)))
@@ -148,9 +157,9 @@ export default function ChatPage({ role }: ChatPageProps) {
     }
   }
 
-  const handleSend = async (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.FormEvent, overrideQuery?: string) => {
     if (e) e.preventDefault()
-    const query = input.trim()
+    const query = (overrideQuery || input).trim()
     if (!query || loading) return
 
     let currentActiveId = activeId
@@ -181,7 +190,11 @@ export default function ChatPage({ role }: ChatPageProps) {
       let streamed = ''
       let parsedResults: SearchResult[] = []
       let hasAnswer = true
-      const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', answer: '', results: [], hasAnswer: true, suggestions: ['Summarize the sources', 'Show the key points'] }
+      let suggestions: string[] = []
+      let actualDbId: number | string | undefined = undefined
+
+      const assistantMsgTempId = crypto.randomUUID()
+      const assistantMsg: ChatMessage = { id: assistantMsgTempId, role: 'assistant', answer: '', results: [], hasAnswer: true, suggestions: [] }
       setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
 
       while (true) {
@@ -204,21 +217,75 @@ export default function ChatPage({ role }: ChatPageProps) {
                 if (typeof parsed.answer === 'string') streamed = parsed.answer
                 if (Array.isArray(parsed.results)) parsedResults = parsed.results
                 if (typeof parsed.has_answer === 'boolean') hasAnswer = parsed.has_answer
+                if (Array.isArray(parsed.suggestions)) suggestions = parsed.suggestions
+                if (typeof parsed.message_id === 'number') actualDbId = parsed.message_id
               } catch {
                 streamed += data
               }
             } else {
               streamed += data
             }
-            setConversations((prev) => prev.map((c) => c.id === currentActiveId ? { ...c, messages: c.messages.map((m) => m.id === assistantMsg.id ? { ...m, answer: streamed, results: parsedResults, hasAnswer } : m) } : c))
+
+            setConversations((prev) =>
+              prev.map((c) =>
+                c.id === currentActiveId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === assistantMsgTempId || m.id === actualDbId
+                          ? {
+                              ...m,
+                              id: actualDbId || m.id,
+                              answer: streamed,
+                              results: parsedResults,
+                              hasAnswer,
+                              suggestions,
+                            }
+                          : m
+                      ),
+                    }
+                  : c
+              )
+            )
           }
         }
       }
     } catch (err: any) {
       const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', error: err.response?.data?.detail || err.message || 'Chat failed' }
-      setConversations((prev) => prev.map((c) => c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c))
+      setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleFeedbackInit = (msgId: number | string, helpful: boolean) => {
+    setFeedbackMsgId(msgId)
+    setFeedbackHelpful(helpful)
+    setFeedbackComment('')
+  }
+
+  const handleFeedbackSubmit = async () => {
+    if (!feedbackMsgId || feedbackHelpful === null) return
+    setFeedbackLoading(true)
+    try {
+      await submitFeedback(Number(feedbackMsgId), feedbackHelpful, feedbackComment)
+      setConversations((prev) =>
+        prev.map((c) => ({
+          ...c,
+          messages: c.messages.map((msg) =>
+            msg.id === feedbackMsgId
+              ? { ...msg, feedbackSubmitted: feedbackHelpful ? 'up' : 'down' }
+              : msg
+          ),
+        }))
+      )
+      setFeedbackMsgId(null)
+      setFeedbackHelpful(null)
+      setFeedbackComment('')
+    } catch (err) {
+      console.error("Failed to submit feedback", err)
+    } finally {
+      setFeedbackLoading(false)
     }
   }
 
@@ -240,11 +307,12 @@ export default function ChatPage({ role }: ChatPageProps) {
       const transcript = Array.from(event.results).map((r: any) => r[0].transcript).join(' ')
       setInput(transcript)
       if (transcript.trim()) {
-        void handleSend()
+        void handleSend(undefined, transcript)
       }
     }
     recognition.start()
   }
+
 
   return (
     <div className="chat-page-root">
@@ -363,19 +431,152 @@ export default function ChatPage({ role }: ChatPageProps) {
                     ) : null}
 
                     {m.suggestions && m.suggestions.length > 0 ? (
-                      <div className="chat-page-suggestion-row">
+                      <div className="chat-page-suggestion-row" style={{ marginTop: '12px' }}>
                         {m.suggestions.map((suggestion) => (
-                          <button key={suggestion} className="chat-page-suggestion-chip" onClick={() => setInput(suggestion)}>
+                          <button
+                            key={suggestion}
+                            className="chat-page-suggestion-chip"
+                            onClick={() => handleSend(undefined, suggestion)}
+                            style={{
+                              border: `1px solid ${color.border}`,
+                              borderRadius: radius.lg,
+                              padding: '6px 12px',
+                              background: color.bg,
+                              color: color.adminAccent,
+                              cursor: 'pointer',
+                              fontSize: '12.5px',
+                              fontWeight: 500,
+                              transition: 'all 0.12s',
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = color.adminAccentSoft;
+                              e.currentTarget.style.borderColor = color.adminAccent;
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = color.bg;
+                              e.currentTarget.style.borderColor = color.border;
+                            }}
+                          >
                             {suggestion}
                           </button>
                         ))}
                       </div>
                     ) : null}
 
-                    <div className="chat-page-feedback-row">
-                      <button className="chat-page-feedback-button" aria-label="Helpful response"><ThumbsUp size={14} /> Yes</button>
-                      <button className="chat-page-feedback-button" aria-label="Unhelpful response"><ThumbsDown size={14} /> No</button>
+                    <div style={{ marginTop: '12px', borderTop: `1px solid ${color.border}`, paddingTop: '10px' }}>
+                      {m.feedbackSubmitted ? (
+                        <div style={{ fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', color: m.feedbackSubmitted === 'up' ? color.success : color.danger, fontWeight: 500 }}>
+                          {m.feedbackSubmitted === 'up' ? (
+                            <>
+                              <ThumbsUp size={13} fill={color.success} /> Rated as helpful
+                            </>
+                          ) : (
+                            <>
+                              <ThumbsDown size={13} fill={color.danger} /> Rated as unhelpful
+                            </>
+                          )}
+                        </div>
+                      ) : feedbackMsgId === m.id ? (
+                        <div style={{ background: '#fcfbf9', border: `1px dashed ${color.border}`, borderRadius: radius.md, padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '400px' }}>
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: color.textPrimary }}>
+                            {feedbackHelpful ? 'What did you find helpful?' : 'How can we improve this answer?'}
+                          </div>
+                          <textarea
+                            value={feedbackComment}
+                            onChange={(e) => setFeedbackComment(e.target.value)}
+                            placeholder="Add optional comments..."
+                            style={{
+                              width: '100%',
+                              minHeight: '60px',
+                              fontSize: '12.5px',
+                              padding: '8px',
+                              borderRadius: radius.sm,
+                              border: `1px solid ${color.border}`,
+                              outline: 'none',
+                              resize: 'vertical',
+                              fontFamily: font
+                            }}
+                          />
+                          <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                            <button
+                              onClick={() => {
+                                setFeedbackMsgId(null);
+                                setFeedbackHelpful(null);
+                                setFeedbackComment('');
+                              }}
+                              style={{
+                                padding: '4px 10px',
+                                border: `1px solid ${color.border}`,
+                                background: 'white',
+                                borderRadius: radius.sm,
+                                fontSize: '12px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              disabled={feedbackLoading}
+                              onClick={handleFeedbackSubmit}
+                              style={{
+                                padding: '4px 12px',
+                                border: 'none',
+                                background: color.chatAccent,
+                                color: 'white',
+                                borderRadius: radius.sm,
+                                fontSize: '12px',
+                                fontWeight: 500,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {feedbackLoading ? 'Submitting...' : 'Submit'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="chat-page-feedback-row" style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            className="chat-page-feedback-button"
+                            onClick={() => handleFeedbackInit(m.id, true)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '5px 12px',
+                              border: `1px solid ${color.border}`,
+                              borderRadius: '999px',
+                              background: '#fff',
+                              color: color.textSecondary,
+                              cursor: 'pointer',
+                              fontSize: '12px'
+                            }}
+                            aria-label="Helpful response"
+                          >
+                            <ThumbsUp size={13} /> Helpful
+                          </button>
+                          <button
+                            className="chat-page-feedback-button"
+                            onClick={() => handleFeedbackInit(m.id, false)}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '5px 12px',
+                              border: `1px solid ${color.border}`,
+                              borderRadius: '999px',
+                              background: '#fff',
+                              color: color.textSecondary,
+                              cursor: 'pointer',
+                              fontSize: '12px'
+                            }}
+                            aria-label="Unhelpful response"
+                          >
+                            <ThumbsDown size={13} /> Unhelpful
+                          </button>
+                        </div>
+                      )}
                     </div>
+
                   </div>
                 )}
               </div>
@@ -403,7 +604,7 @@ export default function ChatPage({ role }: ChatPageProps) {
             <button
               type="button"
               onClick={startVoiceInput}
-              className="chat-page-send-button"
+              className={`chat-page-send-button ${listening ? 'listening' : ''}`}
               aria-label="Voice input"
             >
               <Mic size={16} />

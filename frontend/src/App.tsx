@@ -1,4 +1,4 @@
-﻿import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getMe } from './services/api'
 import LoginPage from './pages/LoginPage'
@@ -11,6 +11,9 @@ import DrivePage from './pages/DrivePage'
 import UsersPage from './pages/UsersPage'
 import UserLogPage from './pages/UserLogPage'
 import AddAdminPage from './pages/AddAdminPage'
+import AdminDashboardPage from './pages/AdminDashboardPage'
+import AdminFeedbackPage from './pages/AdminFeedbackPage'
+
 
 export default function App() {
   const [role, setRole] = useState<string | null>(null)
@@ -47,7 +50,9 @@ export default function App() {
 
       {role === 'admin' && (
         <Route path="/" element={<AdminLayout role={role} />}>
-          <Route index element={<Navigate to="/documents" replace />} />
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard" element={<AdminDashboardPage />} />
+          <Route path="feedback" element={<AdminFeedbackPage />} />
           <Route path="documents" element={<DocumentsPage />} />
           <Route path="processing" element={<ProcessingPage />} />
           <Route path="drive" element={<DrivePage />} />

@@ -14,6 +14,7 @@ from app.routes.drive import router as drive_router
 from app.routes.search import router as search_router
 from app.routes.process_all import router as process_all_router
 from app.routes.chat_sessions import router as chat_sessions_router
+from app.routes.feedback import router as feedback_router
 
 
 app = FastAPI(
@@ -45,6 +46,8 @@ app.include_router(drive_router)
 app.include_router(search_router)
 app.include_router(process_all_router)
 app.include_router(chat_sessions_router)
+app.include_router(feedback_router)
+
 
 
 # ─── Static files (optional, for serving frontend build) ─────────────────────
