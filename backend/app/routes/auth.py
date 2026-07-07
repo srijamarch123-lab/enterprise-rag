@@ -85,11 +85,12 @@ def _log(db: Session, user_id: int | None, action: str, **kwargs):
 
 @router.post("/register", status_code=201)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.email == req.email).first():
+    email_norm = req.email.lower().strip()
+    if db.query(User).filter(User.email == email_norm).first():
         raise HTTPException(400, "Email already registered")
 
     user = User(
-        email=req.email,
+        email=email_norm,
         hashed_password=hash_password(req.password),
         full_name=req.full_name,
         role=req.role,
