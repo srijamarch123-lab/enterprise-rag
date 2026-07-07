@@ -31,13 +31,20 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _validate_file(file: UploadFile):
-    ext = Path(file.filename).suffix.lstrip(".").lower()
+    filename = file.filename or ""
+    if ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Path traversal attempt detected in filename",
+        )
+    ext = Path(filename).suffix.lstrip(".").lower()
     if ext not in settings.allowed_extensions_list:
         raise HTTPException(
             status_code=400,
             detail=f"File type '.{ext}' not allowed. Allowed: {settings.allowed_extensions_list}",
         )
     return ext
+
 
 
 def _save_file(file: UploadFile, ext: str) -> tuple[str, str, int]:
