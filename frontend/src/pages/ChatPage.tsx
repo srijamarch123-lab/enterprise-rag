@@ -316,7 +316,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     try {
       const result = await extractFileText(file)
       setSessionDoc({ filename: result.filename, text: result.text })
-      setSessionDrive({ connected: true, credentials_json: null, label: result.filename })
+      setSessionDrive({ label: result.filename })
     } catch (err: any) {
       alert(err.response?.data?.detail || 'Failed to read file')
     } finally {

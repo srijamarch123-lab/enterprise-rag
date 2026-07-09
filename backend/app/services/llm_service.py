@@ -12,7 +12,7 @@ settings = get_settings()
 
 ENCODING = tiktoken.get_encoding("cl100k_base")
 
-SYSTEM_PROMPT = """You are a helpful enterprise document assistant. Answer the user's question using ONLY the provided document context.
+SYSTEM_PROMPT = """You are a helpful enterprise document assistant. Answer the user's question using only the provided document context.
 Do not hallucinate or use any information not explicitly in the context.
 If the answer cannot be found, respond with: "I don't know based on the provided documents."
 Format your response clearly using bullet points and short paragraphs.
@@ -202,17 +202,26 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
     if not chunks:
         return "I don't know based on the provided documents."
     relevant = []
+    source_ids = []
     for chunk in chunks[:3]:
         text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
         if text:
             relevant.append(text)
+            doc_id = chunk.get("document_id") or chunk.get("doc_id") or chunk.get("id")
+            if doc_id is not None:
+                doc_str = str(doc_id)
+                if doc_str not in source_ids:
+                    source_ids.append(doc_str)
     if not relevant:
         return "I don't know based on the provided documents."
     excerpt = " ".join(relevant[:2])
     excerpt = " ".join(excerpt.split())
     if len(excerpt) > 600:
         excerpt = excerpt[:600] + "..."
-    return f"Based on the available documents:\n\n{excerpt}"
+    sources_part = ""
+    if source_ids:
+        sources_part = f"\n\nSources: {', '.join(source_ids)}"
+    return f"Based on the available documents:\n\n{excerpt}{sources_part}"
 
 
 def build_chat_prompt(
