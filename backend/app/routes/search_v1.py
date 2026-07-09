@@ -1,4 +1,4 @@
-﻿from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -57,20 +57,13 @@ def _make_filter(role: str, department: Optional[str]) -> Filter:
 def _get_visible_doc_ids_for_role(role: str, db) -> set[int]:
     """Get document IDs visible to user's role based on access_level."""
     role_lower = (role or "").strip().lower()
-
     allowed_levels = set()
     if role_lower in ("admin", "hr"):
-        allowed_levels = {
-            AccessLevel.public,
-            AccessLevel.internal,
-            AccessLevel.confidential,
-            AccessLevel.restricted,
-        }
+        allowed_levels = {AccessLevel.public, AccessLevel.internal, AccessLevel.confidential, AccessLevel.restricted}
     elif role_lower == "manager":
         allowed_levels = {AccessLevel.public, AccessLevel.internal, AccessLevel.confidential}
     else:
         allowed_levels = {AccessLevel.public, AccessLevel.internal}
-
     docs = db.query(Document).filter(Document.access_level.in_(allowed_levels)).all()
     return {d.id for d in docs}
 
@@ -333,13 +326,13 @@ def search(
         semantic_hits: list[Any] = []
         try:
             client: QdrantClient = _get_qdrant()
-            semantic_hits = client.search(
+            semantic_hits = client.query_points(
                 collection_name=settings.qdrant_collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 query_filter=query_filter,
                 limit=top_k,
                 with_payload=True,
-            )
+            ).points
         except Exception as exc:
             logger.warning("Qdrant semantic search failed, falling back to DB chunk retrieval: %s", exc)
 
@@ -437,6 +430,24 @@ def search(
                 logger.error("LLM answer generation failed: %s", e)
                 answer = ""
 
+                # Enrich results with drive_file_id from Document table
+        for result in merged_results:
+            doc_id = result.get("document_id")
+            if doc_id:
+                doc = db.query(Document).filter(Document.id == doc_id).first()
+                if doc and doc.drive_file_id:
+                    result["drive_file_id"] = doc.drive_file_id
+                    result["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
+
+        # Enrich results with drive_url from Document table
+        for result in merged_results:
+            doc_id = result.get("document_id")
+            if doc_id:
+                doc = db.query(Document).filter(Document.id == doc_id).first()
+                if doc and doc.drive_file_id:
+                    result["drive_file_id"] = doc.drive_file_id
+                    result["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
+
         return {
             "query": req.query,
             "normalized_query": normalized,
@@ -459,3 +470,5 @@ def chat(
     db: Session = Depends(get_db),
 ):
     return search(req, current_user=current_user, db=db)
+
+

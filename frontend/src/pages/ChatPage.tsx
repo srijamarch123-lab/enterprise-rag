@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown, HardDrive, Upload, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import api, { logout, submitFeedback } from '../services/api'
+import api, { logout, submitFeedback, extractFileText } from '../services/api'
 import { theme } from '../theme'
 import './ChatPage.css'
-
 
 const { color, font, radius } = theme
 
@@ -61,21 +60,16 @@ function confidencePercent(r: SearchResult): number {
   return 0
 }
 
-function confidenceColor(pct: number): string {
-  if (pct >= 70) return color.success
-  if (pct >= 40) return color.warning
-  return color.danger
-}
-
 function newConversation(): Conversation {
   return { id: crypto.randomUUID(), title: 'New chat', messages: [] }
 }
 
 interface ChatPageProps {
   role?: string
+  onLogout?: () => void
 }
 
-export default function ChatPage({ role }: ChatPageProps) {
+export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const navigate = useNavigate()
   const isAdmin = role === 'admin'
 
@@ -86,8 +80,19 @@ export default function ChatPage({ role }: ChatPageProps) {
   const [listening, setListening] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<any>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const plusRef = useRef<HTMLDivElement>(null)
 
-  // Feedback collection states
+  // Plus menu
+  const [showPlus, setShowPlus] = useState(false)
+  const [showDriveModal, setShowDriveModal] = useState(false)
+  const [driveJson, setDriveJson] = useState('')
+  const [driveError, setDriveError] = useState('')
+  const [sessionDrive, setSessionDrive] = useState<{ label: string } | null>(null)
+  const [sessionDoc, setSessionDoc] = useState<{ filename: string; text: string } | null>(null)
+  const [uploadingDoc, setUploadingDoc] = useState(false)
+
+  // Feedback
   const [feedbackMsgId, setFeedbackMsgId] = useState<number | string | null>(null)
   const [feedbackHelpful, setFeedbackHelpful] = useState<boolean | null>(null)
   const [feedbackComment, setFeedbackComment] = useState('')
@@ -116,8 +121,18 @@ export default function ChatPage({ role }: ChatPageProps) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [active.messages.length, loading])
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (plusRef.current && !plusRef.current.contains(e.target as Node)) setShowPlus(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   const handleLogout = async () => {
-    try { await logout() } finally { window.location.href = '/login' }
+    try { await logout() } catch {}
+    if (onLogout) onLogout()
+    else window.location.href = '/login'
   }
 
   const handleNewChat = async () => {
@@ -131,30 +146,34 @@ export default function ChatPage({ role }: ChatPageProps) {
       setConversations((prev) => [conv, ...prev])
       setActiveId(conv.id)
     }
+    setSessionDrive(null)
+    setSessionDoc(null)
   }
 
   const loadSessionMessages = async (sessionId: string) => {
     try {
       const { data } = await api.get(`/chat/sessions/${sessionId}`)
-      const mappedMessages = (data.messages || []).map((m: any) => {
-        const metadataResults = Array.isArray(m?.metadata?.results) ? m.metadata.results : []
-        const metadataSuggestions = Array.isArray(m?.metadata?.suggestions) ? m.metadata.suggestions : []
-        return {
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          answer: m.role === 'assistant' ? m.content : undefined,
-          query: m.role === 'user' ? m.content : undefined,
-          results: metadataResults,
-          hasAnswer: typeof m?.metadata?.has_answer === 'boolean' ? m.metadata.has_answer : undefined,
-          suggestions: metadataSuggestions,
-          feedbackSubmitted: m?.metadata?.feedbackSubmitted,
-        }
-      })
+      const mappedMessages = (data.messages || []).map((m: any) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        answer: m.role === 'assistant' ? m.content : undefined,
+        query: m.role === 'user' ? m.content : undefined,
+        results: Array.isArray(m?.metadata?.results) ? m.metadata.results : [],
+        hasAnswer: typeof m?.metadata?.has_answer === 'boolean' ? m.metadata.has_answer : undefined,
+        suggestions: Array.isArray(m?.metadata?.suggestions) ? m.metadata.suggestions : [],
+        feedbackSubmitted: m?.metadata?.feedbackSubmitted,
+      }))
       setConversations((prev) => prev.map((c) => (c.id === sessionId ? { ...c, messages: mappedMessages } : c)))
-    } catch {
-      // ignore load failures and keep local state
-    }
+      // Restore uploaded doc if session has one
+      if (data.session_doc && data.session_doc_name) {
+        setSessionDoc({ filename: data.session_doc_name, text: data.session_doc })
+        setSessionDrive({ label: data.session_doc_name })
+      } else {
+        setSessionDoc(null)
+        setSessionDrive(null)
+      }
+    } catch {}
   }
 
   const handleSend = async (e?: React.FormEvent, overrideQuery?: string) => {
@@ -182,7 +201,7 @@ export default function ChatPage({ role }: ChatPageProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ content: query }),
+        body: JSON.stringify({ content: query, session_context: sessionDoc ? `The user has uploaded a document called "${sessionDoc.filename}". Use this as additional context:\n\n${sessionDoc.text}` : undefined, session_doc_name: sessionDoc?.filename }),
       })
       const reader = response.body?.getReader()
       if (!reader) throw new Error('Streaming not available')
@@ -205,7 +224,6 @@ export default function ChatPage({ role }: ChatPageProps) {
         for (const part of parts) {
           const trimmed = part.trim()
           if (!trimmed) continue
-
           const lines = trimmed.split('\n').map((line) => line.trim())
           for (const line of lines) {
             if (!line.startsWith('data:')) continue
@@ -219,31 +237,13 @@ export default function ChatPage({ role }: ChatPageProps) {
                 if (typeof parsed.has_answer === 'boolean') hasAnswer = parsed.has_answer
                 if (Array.isArray(parsed.suggestions)) suggestions = parsed.suggestions
                 if (typeof parsed.message_id === 'number') actualDbId = parsed.message_id
-              } catch {
-                streamed += data
-              }
-            } else {
-              streamed += data
-            }
+              } catch { streamed += data }
+            } else { streamed += data + ' ' }
 
             setConversations((prev) =>
               prev.map((c) =>
                 c.id === currentActiveId
-                  ? {
-                      ...c,
-                      messages: c.messages.map((m) =>
-                        m.id === assistantMsgTempId || m.id === actualDbId
-                          ? {
-                              ...m,
-                              id: actualDbId || m.id,
-                              answer: streamed,
-                              results: parsedResults,
-                              hasAnswer,
-                              suggestions,
-                            }
-                          : m
-                      ),
-                    }
+                  ? { ...c, messages: c.messages.map((m) => m.id === assistantMsgTempId || m.id === actualDbId ? { ...m, id: actualDbId || m.id, answer: streamed, results: parsedResults, hasAnswer, suggestions } : m) }
                   : c
               )
             )
@@ -269,32 +269,17 @@ export default function ChatPage({ role }: ChatPageProps) {
     setFeedbackLoading(true)
     try {
       await submitFeedback(Number(feedbackMsgId), feedbackHelpful, feedbackComment)
-      setConversations((prev) =>
-        prev.map((c) => ({
-          ...c,
-          messages: c.messages.map((msg) =>
-            msg.id === feedbackMsgId
-              ? { ...msg, feedbackSubmitted: feedbackHelpful ? 'up' : 'down' }
-              : msg
-          ),
-        }))
-      )
+      setConversations((prev) => prev.map((c) => ({ ...c, messages: c.messages.map((msg) => msg.id === feedbackMsgId ? { ...msg, feedbackSubmitted: feedbackHelpful ? 'up' : 'down' } : msg) })))
       setFeedbackMsgId(null)
       setFeedbackHelpful(null)
       setFeedbackComment('')
-    } catch (err) {
-      console.error("Failed to submit feedback", err)
-    } finally {
-      setFeedbackLoading(false)
-    }
+    } catch (err) { console.error('Failed to submit feedback', err) }
+    finally { setFeedbackLoading(false) }
   }
 
   const startVoiceInput = () => {
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
-    if (!SpeechRecognition) {
-      window.alert('Voice input is not supported in this browser.')
-      return
-    }
+    if (!SpeechRecognition) { window.alert('Voice input is not supported in this browser.'); return }
     const recognition = new SpeechRecognition()
     recognition.lang = 'en-US'
     recognition.interimResults = false
@@ -306,33 +291,52 @@ export default function ChatPage({ role }: ChatPageProps) {
     recognition.onresult = (event: any) => {
       const transcript = Array.from(event.results).map((r: any) => r[0].transcript).join(' ')
       setInput(transcript)
-      if (transcript.trim()) {
-        void handleSend(undefined, transcript)
-      }
+      if (transcript.trim()) void handleSend(undefined, transcript)
     }
     recognition.start()
   }
 
+  const handleDriveConnect = () => {
+    setDriveError('')
+    try {
+      const parsed = JSON.parse(driveJson)
+      setSessionDrive({ label: parsed.client_email || 'Drive connected' })
+      setShowDriveModal(false)
+      setDriveJson('')
+    } catch {
+      setDriveError('Invalid JSON. Paste your service account credentials.')
+    }
+  }
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setShowPlus(false)
+    setUploadingDoc(true)
+    try {
+      const result = await extractFileText(file)
+      setSessionDoc({ filename: result.filename, text: result.text })
+      setSessionDrive({ connected: true, credentials_json: null, label: result.filename })
+    } catch (err: any) {
+      alert(err.response?.data?.detail || 'Failed to read file')
+    } finally {
+      setUploadingDoc(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   return (
     <div className="chat-page-root">
       <aside className="chat-page-sidebar">
         {isAdmin && (
-          <button
-            onClick={() => navigate('/documents')}
-            className="chat-page-sidebar-link"
-            aria-label="Back to dashboard"
-          >
+          <button onClick={() => navigate('/documents')} className="chat-page-sidebar-link" aria-label="Back to dashboard">
             <ArrowLeft size={15} strokeWidth={2} />
             Back to dashboard
           </button>
         )}
 
         <div className="chat-page-sidebar-top">
-          <button
-            onClick={handleNewChat}
-            className="chat-page-button chat-page-button-primary"
-          >
+          <button onClick={handleNewChat} className="chat-page-button chat-page-button-primary">
             <Plus size={16} strokeWidth={2.25} />
             New chat
           </button>
@@ -343,10 +347,7 @@ export default function ChatPage({ role }: ChatPageProps) {
           {conversations.map((c) => (
             <button
               key={c.id}
-              onClick={() => {
-                setActiveId(c.id)
-                void loadSessionMessages(c.id)
-              }}
+              onClick={() => { setActiveId(c.id); void loadSessionMessages(c.id) }}
               className={`chat-page-chat-item ${c.id === activeId ? 'active' : ''}`}
               aria-current={c.id === activeId ? 'page' : undefined}
             >
@@ -357,11 +358,7 @@ export default function ChatPage({ role }: ChatPageProps) {
         </div>
 
         <div className="chat-page-sidebar-footer">
-          <button
-            onClick={handleLogout}
-            className="chat-page-sidebar-link"
-            aria-label="Log out"
-          >
+          <button onClick={handleLogout} className="chat-page-sidebar-link" aria-label="Log out">
             <LogOut size={15} strokeWidth={2} />
             Log out
           </button>
@@ -369,6 +366,17 @@ export default function ChatPage({ role }: ChatPageProps) {
       </aside>
 
       <main className="chat-page-main">
+        {/* Session drive indicator */}
+        {sessionDrive && (
+          <div style={{ padding: '6px 24px', background: color.chatAccentSoft, borderBottom: `1px solid ${color.border}`, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: color.chatAccentHover }}>
+            <HardDrive size={12} />
+            {sessionDrive.label}  connected for this chat only
+            <button onClick={() => setSessionDrive(null)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', color: color.textTertiary, display: 'flex', alignItems: 'center' }}>
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
         <div className="chat-page-content-wrap">
           <div className="chat-page-content">
             {active.messages.length === 0 && (
@@ -389,16 +397,20 @@ export default function ChatPage({ role }: ChatPageProps) {
                 ) : (
                   <div className="chat-page-message-column">
                     {m.answer ? (
-                      <div className="chat-page-message-answer">
+                      <div className="chat-page-message-answer-plain">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.answer}</ReactMarkdown>
+                      </div>
+                    ) : loading && m.id === active.messages[active.messages.length - 1]?.id ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8B8574', fontSize: '13px', padding: '4px 0' }}>
+                        <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#6E9163', animation: 'pulse-dot 1s infinite' }} />
+                        <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#6E9163', animation: 'pulse-dot 1s infinite 0.2s' }} />
+                        <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: '#6E9163', animation: 'pulse-dot 1s infinite 0.4s' }} />
                       </div>
                     ) : null}
 
                     {m.results && m.results.length > 0 ? (
                       <div className="chat-page-results-list">
-                        <div className="chat-page-results-summary">
-                          {m.results.length} source{m.results.length !== 1 ? 's' : ''} found
-                        </div>
+                        <div className="chat-page-results-summary">{m.results.length} source{m.results.length !== 1 ? 's' : ''} found</div>
                         {m.results.map((r, i) => {
                           const pct = confidencePercent(r)
                           return (
@@ -406,24 +418,24 @@ export default function ChatPage({ role }: ChatPageProps) {
                               <div className="chat-page-result-header">
                                 <div className="chat-page-result-meta">
                                   <FileText size={14} />
-                                  <span className="chat-page-result-title">
-                                    {r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}
-                                  </span>
+                                  <span className="chat-page-result-title">{r.doc_name || r.filename || `Document ${r.doc_id ?? ''}`}</span>
                                   <span className="chat-page-result-badge">{r.search_type}</span>
                                 </div>
                                 <div className="chat-page-result-score">
                                   <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{pct.toFixed(0)}%</span>
-                                  <progress
-                                    value={Math.min(pct, 100)}
-                                    max={100}
-                                    className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}
-                                  />
+                                  <progress value={Math.min(pct, 100)} max={100} className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`} />
                                 </div>
                               </div>
                               <div className="chat-page-result-preview">{(r as any).text || r.text_preview}</div>
-                              {(r.file_path || r.path) ? (
-                                <div className="chat-page-result-path">{r.file_path || r.path}</div>
-                              ) : null}
+                              {(r.file_path || r.path) ? <div className="chat-page-result-path">
+                                {(r as any).drive_url ? (
+                                  <a href={(r as any).drive_url} target="_blank" rel="noopener noreferrer" style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
+                                    View in Google Drive
+                                  </a>
+                                ) : (r.file_path || r.path) ? (
+                                  <span style={{ fontSize: "11px", color: color.textTertiary }}>{r.file_path || r.path}</span>
+                                ) : null}
+                              </div> : null}
                             </div>
                           )
                         })}
@@ -433,32 +445,7 @@ export default function ChatPage({ role }: ChatPageProps) {
                     {m.suggestions && m.suggestions.length > 0 ? (
                       <div className="chat-page-suggestion-row" style={{ marginTop: '12px' }}>
                         {m.suggestions.map((suggestion) => (
-                          <button
-                            key={suggestion}
-                            className="chat-page-suggestion-chip"
-                            onClick={() => handleSend(undefined, suggestion)}
-                            style={{
-                              border: `1px solid ${color.border}`,
-                              borderRadius: radius.lg,
-                              padding: '6px 12px',
-                              background: color.bg,
-                              color: color.adminAccent,
-                              cursor: 'pointer',
-                              fontSize: '12.5px',
-                              fontWeight: 500,
-                              transition: 'all 0.12s',
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.background = color.adminAccentSoft;
-                              e.currentTarget.style.borderColor = color.adminAccent;
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.background = color.bg;
-                              e.currentTarget.style.borderColor = color.border;
-                            }}
-                          >
-                            {suggestion}
-                          </button>
+                          <button key={suggestion} className="chat-page-suggestion-chip" onClick={() => handleSend(undefined, suggestion)}>{suggestion}</button>
                         ))}
                       </div>
                     ) : null}
@@ -466,117 +453,24 @@ export default function ChatPage({ role }: ChatPageProps) {
                     <div style={{ marginTop: '12px', borderTop: `1px solid ${color.border}`, paddingTop: '10px' }}>
                       {m.feedbackSubmitted ? (
                         <div style={{ fontSize: '12.5px', display: 'flex', alignItems: 'center', gap: '6px', color: m.feedbackSubmitted === 'up' ? color.success : color.danger, fontWeight: 500 }}>
-                          {m.feedbackSubmitted === 'up' ? (
-                            <>
-                              <ThumbsUp size={13} fill={color.success} /> Rated as helpful
-                            </>
-                          ) : (
-                            <>
-                              <ThumbsDown size={13} fill={color.danger} /> Rated as unhelpful
-                            </>
-                          )}
+                          {m.feedbackSubmitted === 'up' ? <><ThumbsUp size={13} fill={color.success} /> Rated as helpful</> : <><ThumbsDown size={13} fill={color.danger} /> Rated as unhelpful</>}
                         </div>
                       ) : feedbackMsgId === m.id ? (
                         <div style={{ background: '#fcfbf9', border: `1px dashed ${color.border}`, borderRadius: radius.md, padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '400px' }}>
-                          <div style={{ fontSize: '12px', fontWeight: 600, color: color.textPrimary }}>
-                            {feedbackHelpful ? 'What did you find helpful?' : 'How can we improve this answer?'}
-                          </div>
-                          <textarea
-                            value={feedbackComment}
-                            onChange={(e) => setFeedbackComment(e.target.value)}
-                            placeholder="Add optional comments..."
-                            style={{
-                              width: '100%',
-                              minHeight: '60px',
-                              fontSize: '12.5px',
-                              padding: '8px',
-                              borderRadius: radius.sm,
-                              border: `1px solid ${color.border}`,
-                              outline: 'none',
-                              resize: 'vertical',
-                              fontFamily: font
-                            }}
-                          />
+                          <div style={{ fontSize: '12px', fontWeight: 600, color: color.textPrimary }}>{feedbackHelpful ? 'What did you find helpful?' : 'How can we improve this answer?'}</div>
+                          <textarea value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} placeholder="Add optional comments..." style={{ width: '100%', minHeight: '60px', fontSize: '12.5px', padding: '8px', borderRadius: radius.sm, border: `1px solid ${color.border}`, outline: 'none', resize: 'vertical', fontFamily: font }} />
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button
-                              onClick={() => {
-                                setFeedbackMsgId(null);
-                                setFeedbackHelpful(null);
-                                setFeedbackComment('');
-                              }}
-                              style={{
-                                padding: '4px 10px',
-                                border: `1px solid ${color.border}`,
-                                background: 'white',
-                                borderRadius: radius.sm,
-                                fontSize: '12px',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              disabled={feedbackLoading}
-                              onClick={handleFeedbackSubmit}
-                              style={{
-                                padding: '4px 12px',
-                                border: 'none',
-                                background: color.chatAccent,
-                                color: 'white',
-                                borderRadius: radius.sm,
-                                fontSize: '12px',
-                                fontWeight: 500,
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {feedbackLoading ? 'Submitting...' : 'Submit'}
-                            </button>
+                            <button onClick={() => { setFeedbackMsgId(null); setFeedbackHelpful(null); setFeedbackComment('') }} style={{ padding: '4px 10px', border: `1px solid ${color.border}`, background: 'white', borderRadius: radius.sm, fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
+                            <button disabled={feedbackLoading} onClick={handleFeedbackSubmit} style={{ padding: '4px 12px', border: 'none', background: color.chatAccent, color: 'white', borderRadius: radius.sm, fontSize: '12px', fontWeight: 500, cursor: 'pointer' }}>{feedbackLoading ? 'Submitting...' : 'Submit'}</button>
                           </div>
                         </div>
                       ) : (
-                        <div className="chat-page-feedback-row" style={{ display: 'flex', gap: '8px' }}>
-                          <button
-                            className="chat-page-feedback-button"
-                            onClick={() => handleFeedbackInit(m.id, true)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '5px 12px',
-                              border: `1px solid ${color.border}`,
-                              borderRadius: '999px',
-                              background: '#fff',
-                              color: color.textSecondary,
-                              cursor: 'pointer',
-                              fontSize: '12px'
-                            }}
-                            aria-label="Helpful response"
-                          >
-                            <ThumbsUp size={13} /> Helpful
-                          </button>
-                          <button
-                            className="chat-page-feedback-button"
-                            onClick={() => handleFeedbackInit(m.id, false)}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '5px 12px',
-                              border: `1px solid ${color.border}`,
-                              borderRadius: '999px',
-                              background: '#fff',
-                              color: color.textSecondary,
-                              cursor: 'pointer',
-                              fontSize: '12px'
-                            }}
-                            aria-label="Unhelpful response"
-                          >
-                            <ThumbsDown size={13} /> Unhelpful
-                          </button>
+                        <div className="chat-page-feedback-row">
+                          <button className="chat-page-feedback-button" onClick={() => handleFeedbackInit(m.id, true)} aria-label="Helpful response"><ThumbsUp size={13} /> Helpful</button>
+                          <button className="chat-page-feedback-button" onClick={() => handleFeedbackInit(m.id, false)} aria-label="Unhelpful response"><ThumbsDown size={13} /> Unhelpful</button>
                         </div>
                       )}
                     </div>
-
                   </div>
                 )}
               </div>
@@ -594,32 +488,69 @@ export default function ChatPage({ role }: ChatPageProps) {
 
         <form onSubmit={handleSend} className="chat-page-form">
           <div className="chat-page-form-row">
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question about your documents..."
-              className="chat-page-input"
-            />
-            <button
-              type="button"
-              onClick={startVoiceInput}
-              className={`chat-page-send-button ${listening ? 'listening' : ''}`}
-              aria-label="Voice input"
-            >
-              <Mic size={16} />
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !input.trim()}
-              className="chat-page-send-button"
-              aria-label="Send message"
-            >
-              <Send size={16} />
-            </button>
+
+            {/* Plus button */}
+            <div ref={plusRef} style={{ position: 'relative', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setShowPlus(p => !p)}
+                style={{ width: '46px', height: '46px', borderRadius: radius.md, border: `1px solid ${color.border}`, background: color.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.textSecondary }}
+              >
+                <Plus size={18} />
+              </button>
+              {showPlus && (
+                <div style={{ position: 'absolute', bottom: '54px', left: 0, background: color.surface, border: `1px solid ${color.border}`, borderRadius: radius.lg, padding: '6px', minWidth: '200px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', zIndex: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setShowDriveModal(true); setShowPlus(false) }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', border: 'none', background: 'transparent', borderRadius: radius.sm, cursor: 'pointer', fontSize: '13px', color: color.textPrimary }}
+                    onMouseEnter={e => (e.currentTarget.style.background = color.chatAccentSoft)}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <HardDrive size={15} /> Connect to Drive
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { fileInputRef.current?.click(); setShowPlus(false) }}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', border: 'none', background: 'transparent', borderRadius: radius.sm, cursor: 'pointer', fontSize: '13px', color: color.textPrimary }}
+                    onMouseEnter={e => (e.currentTarget.style.background = color.chatAccentSoft)}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <Upload size={15} /> Upload document
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask a question about your documents..." className="chat-page-input" />
+            <button type="button" onClick={startVoiceInput} className={`chat-page-send-button ${listening ? 'listening' : ''}`} aria-label="Voice input"><Mic size={16} /></button>
+            <button type="submit" disabled={loading || !input.trim()} className="chat-page-send-button" aria-label="Send message"><Send size={16} /></button>
           </div>
         </form>
       </main>
+
+      {/* Drive modal */}
+      {showDriveModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div style={{ background: color.surface, borderRadius: radius.lg, padding: '24px', width: '480px', maxWidth: '90vw', boxShadow: '0 8px 40px rgba(0,0,0,0.12)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ fontSize: '15px', fontWeight: 600, color: color.textPrimary }}>Connect to Google Drive</div>
+              <button onClick={() => setShowDriveModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: color.textTertiary }}><X size={18} /></button>
+            </div>
+            <div style={{ fontSize: '12px', color: color.textTertiary, marginBottom: '12px' }}>
+              Paste your service account credentials JSON. This connection is only for this chat session.
+            </div>
+            <textarea value={driveJson} onChange={e => setDriveJson(e.target.value)} placeholder='{ "type": "service_account", ... }' rows={8} style={{ width: '100%', border: `1px solid ${color.border}`, borderRadius: radius.sm, padding: '10px', fontSize: '12px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
+            {driveError && <div style={{ color: color.danger, fontSize: '12px', marginTop: '6px' }}>{driveError}</div>}
+            <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowDriveModal(false)} style={{ padding: '8px 16px', border: `1px solid ${color.border}`, borderRadius: radius.sm, background: 'white', fontSize: '13px', cursor: 'pointer', color: color.textSecondary }}>Cancel</button>
+              <button onClick={handleDriveConnect} style={{ padding: '8px 16px', border: 'none', borderRadius: radius.sm, background: color.chatAccent, color: 'white', fontSize: '13px', cursor: 'pointer', fontWeight: 500 }}>Connect</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt" style={{ display: 'none' }} onChange={handleFileUpload} />
     </div>
   )
 }

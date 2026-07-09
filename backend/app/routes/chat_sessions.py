@@ -20,6 +20,8 @@ class CreateSessionRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     content: str
+    session_context: str | None = None
+    session_doc_name: str | None = None
 
 
 @router.post("/sessions", status_code=201)
@@ -82,6 +84,8 @@ def get_session(
     return {
         "id": session.id,
         "title": session.title,
+        "session_doc": (session.session_metadata or {}).get("session_doc"),
+        "session_doc_name": (session.session_metadata or {}).get("session_doc_name"),
         "messages": [
             {
                 "id": message.id,
@@ -119,6 +123,15 @@ def stream_chat(
 
     user_message = ChatMessage(session_id=session.id, role="user", content=req.content.strip())
     db.add(user_message)
+
+    # Save uploaded doc to session metadata if provided
+    if req.session_context and not (session.session_metadata or {}).get("session_doc"):
+        session.session_metadata = {
+            **(session.session_metadata or {}),
+            "session_doc": req.session_context,
+            "session_doc_name": req.session_doc_name or "uploaded_document"
+        }
+
     db.commit()
     db.refresh(user_message)
 
@@ -137,7 +150,13 @@ def stream_chat(
         for msg in history_messages[:-1]
     ]
 
-    prompt_messages = build_chat_prompt(req.content, chunks, history_messages=history_for_prompt)
+    # Inject uploaded session document as extra context
+    extra_chunks = []
+    session_doc_text = req.session_context or (session.session_metadata or {}).get("session_doc")
+    if session_doc_text:
+        extra_chunks = [{"text": session_doc_text, "filename": "uploaded_document", "combined_score": 1.0}]
+
+    prompt_messages = build_chat_prompt(req.content, extra_chunks + chunks, history_messages=history_for_prompt)
     if not prompt_messages:
         prompt_messages = [
             {"role": "system", "content": "You are a helpful assistant."},
@@ -177,6 +196,8 @@ def stream_chat(
             db.commit()
             yield f"data: {__import__('json').dumps({'message_id': assistant_message.id, 'answer': final_text, 'results': results, 'has_answer': search_response.get('has_answer', False), 'suggestions': suggestions})}\n\n"
         except Exception as exc:  # pragma: no cover - defensive fallback
+            import logging
+            logging.getLogger(__name__).error("Stream error: %s", exc, exc_info=True)
             final_text = build_fallback_answer(req.content, chunks)
             suggestions = ["Summarize the sources", "Show the key points", "What other documents relate to this?"]
             assistant_message = ChatMessage(

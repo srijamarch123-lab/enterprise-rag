@@ -46,7 +46,7 @@ export default function AdminFeedbackPage() {
   })
 
   const [activeTab, setActiveTab] = useState<'queue' | 'analytics'>('queue')
-  const [statusFilter, setStatusFilter] = useState<string>('flagged')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
   const [ratingFilter, setRatingFilter] = useState<string>('all')
 
   const [loading, setLoading] = useState(true)

@@ -111,4 +111,11 @@ export const getFeedbackAnalytics = () =>
 
 export const getAuditMetrics = () =>
   api.get('/admin/audit-metrics').then((r) => r.data)
+
 
+
+export const extractFileText = (file: File) => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post('/extract-text', form).then((r) => r.data)
+}

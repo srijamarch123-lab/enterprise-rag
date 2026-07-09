@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    groq_api_key: str = ""
 
     # Qdrant
     qdrant_url: str = ""

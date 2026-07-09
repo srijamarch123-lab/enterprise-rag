@@ -111,6 +111,7 @@ class ChatSession(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     title: Mapped[str] = mapped_column(String(255), default="New chat")
+    session_metadata: Mapped[dict | None] = mapped_column("session_metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
