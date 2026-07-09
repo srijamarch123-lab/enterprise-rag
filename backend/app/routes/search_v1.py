@@ -26,6 +26,61 @@ router = APIRouter(prefix="/api", tags=["search"])
 RERANK_TOP_K = 5
 CONFIDENCE_THRESHOLD = 0.72
 
+_reranker = None
+
+def _get_reranker():
+    global _reranker
+    if _reranker is None:
+        try:
+            from fastembed.rerank.cross_encoder import TextCrossEncoder
+            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2")
+        except Exception as e:
+            logger.warning("Failed to initialize TextCrossEncoder: %s", e)
+    return _reranker
+
+def _rerank_with_cross_encoder(query: str, merged_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not merged_results:
+        return []
+    encoder = _get_reranker()
+    if not encoder:
+        return merged_results
+    try:
+        texts = [r.get("text_preview", "") for r in merged_results]
+        rerank_results = list(encoder.rerank(query, texts))
+        for rr in rerank_results:
+            idx = rr["result_index"]
+            score = float(rr["score"])
+            import math
+            prob = 1 / (1 + math.exp(-score))
+            merged_results[idx]["combined_score"] = prob
+            merged_results[idx]["confidence_score"] = prob
+            merged_results[idx]["rerank_score"] = score
+        merged_results.sort(key=lambda x: x.get("combined_score", 0), reverse=True)
+    except Exception as e:
+        logger.warning("Cross-encoder reranking failed: %s", e)
+    return merged_results
+
+def expand_query(query: str) -> List[str]:
+    try:
+        from app.services.llm_service import LLMService
+        llm = LLMService(temperature=0.3)
+        prompt = (
+            "Given the following user search query, generate 2 variations of this query that use different synonyms or phrasing to search for similar documents.\n"
+            "Output only the variations, one per line, no numbering or other text.\n\n"
+            f"Query: {query}"
+        )
+        res = llm.chat_completion([{"role": "user", "content": prompt}], max_tokens=100)
+        variations = [line.strip() for line in res.split("\n") if line.strip()]
+        cleaned = [query]
+        for v in variations:
+            v_clean = v.strip("-*\"'").strip()
+            if v_clean and v_clean not in cleaned:
+                cleaned.append(v_clean)
+        return cleaned[:3]
+    except Exception as e:
+        logger.warning("Query expansion failed, using original query: %s", e)
+        return [query]
+
 
 class SearchRequest(BaseModel):
     query: str
@@ -316,25 +371,36 @@ def search(
 
         visible_doc_ids = _get_visible_doc_ids_for_role(str(current_user.role), db)
 
-        query_vector = embed_query(normalized)
-        if not query_vector:
-            raise HTTPException(status_code=400, detail="Empty query vector")
+        # Query Expansion
+        expanded_queries = expand_query(req.query)
 
         query_filter = _make_filter(str(current_user.role), req.department)
         top_k = req.limit
 
         semantic_hits: list[Any] = []
+        seen_points = set()
         try:
             client: QdrantClient = _get_qdrant()
-            semantic_hits = client.query_points(
-                collection_name=settings.qdrant_collection_name,
-                query=query_vector,
-                query_filter=query_filter,
-                limit=top_k,
-                with_payload=True,
-            ).points
+            for eq in expanded_queries:
+                eq_normalized = normalize_query(eq)
+                if not eq_normalized:
+                    continue
+                eq_vector = embed_query(eq_normalized)
+                if not eq_vector:
+                    continue
+                hits = client.query_points(
+                    collection_name=settings.qdrant_collection_name,
+                    query=eq_vector,
+                    query_filter=query_filter,
+                    limit=top_k,
+                    with_payload=True,
+                ).points
+                for hit in hits:
+                    if hit.id not in seen_points:
+                        seen_points.add(hit.id)
+                        semantic_hits.append(hit)
         except Exception as exc:
-            logger.warning("Qdrant semantic search failed, falling back to DB chunk retrieval: %s", exc)
+            logger.warning("Qdrant semantic search failed: %s", exc)
 
         keyword_backend = (req.keyword_backend or "bm25").strip().lower()
         if keyword_backend not in {"bm25", "postgres"}:
@@ -354,12 +420,20 @@ def search(
                     b["access_level"] = doc.access_level
                     b["filename"] = doc.original_filename
 
-        merged_results, has_answer = _merge_results(
+        # Hybrid merge candidates (collect more for Cross-Encoder)
+        merged_results, _ = _merge_results(
             semantic_hits,
             bm25_results,
-            top_k=RERANK_TOP_K,
-            confidence_threshold=CONFIDENCE_THRESHOLD,
+            top_k=RERANK_TOP_K * 2,
+            confidence_threshold=0.0,
         )
+
+        # Cross-Encoder Reranking
+        merged_results = _rerank_with_cross_encoder(req.query, merged_results)
+        merged_results = merged_results[:RERANK_TOP_K]
+        
+        top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
+        has_answer = top_score >= CONFIDENCE_THRESHOLD
 
         # Source attribution: attach file_path and full text from DB for every returned chunk
         chunk_ids = [r["chunk_id"] for r in merged_results if r.get("chunk_id")]

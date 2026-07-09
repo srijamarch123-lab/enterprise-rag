@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown, HardDrive, Upload, X } from 'lucide-react'
+import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown, HardDrive, Upload, X, Square } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import api, { logout, submitFeedback, extractFileText } from '../services/api'
@@ -82,6 +82,8 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const recognitionRef = useRef<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plusRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const [previewSource, setPreviewSource] = useState<SearchResult | null>(null)
 
   // Plus menu
   const [showPlus, setShowPlus] = useState(false)
@@ -195,12 +197,15 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     setInput('')
     setLoading(true)
     setActiveId(currentActiveId)
+    const controller = new AbortController()
+    abortControllerRef.current = controller
 
     try {
       const response = await fetch(`/api/chat/sessions/${currentActiveId}/messages/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({ content: query, session_context: sessionDoc ? `The user has uploaded a document called "${sessionDoc.filename}". Use this as additional context:\n\n${sessionDoc.text}` : undefined, session_doc_name: sessionDoc?.filename }),
       })
       const reader = response.body?.getReader()
@@ -216,11 +221,14 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       const assistantMsg: ChatMessage = { id: assistantMsgTempId, role: 'assistant', answer: '', results: [], hasAnswer: true, suggestions: [] }
       setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
 
+      let buffer = ''
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
-        const chunk = decoder.decode(value)
-        const parts = chunk.split('\n\n')
+        buffer += decoder.decode(value, { stream: true })
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() || ''
+        
         for (const part of parts) {
           const trimmed = part.trim()
           if (!trimmed) continue
@@ -238,7 +246,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                 if (Array.isArray(parsed.suggestions)) suggestions = parsed.suggestions
                 if (typeof parsed.message_id === 'number') actualDbId = parsed.message_id
               } catch { streamed += data }
-            } else { streamed += data + ' ' }
+            } else { streamed += data }
 
             setConversations((prev) =>
               prev.map((c) =>
@@ -251,9 +259,22 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         }
       }
     } catch (err: any) {
-      const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', error: err.response?.data?.detail || err.message || 'Chat failed' }
-      setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
+      if (err.name === 'AbortError') {
+        console.log('Stream aborted')
+      } else {
+        const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', error: err.response?.data?.detail || err.message || 'Chat failed' }
+        setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
+      }
     } finally {
+      setLoading(false)
+      abortControllerRef.current = null
+    }
+  }
+
+  const handleStopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
       setLoading(false)
     }
   }
@@ -414,7 +435,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                         {m.results.map((r, i) => {
                           const pct = confidencePercent(r)
                           return (
-                            <div key={r.chunk_id || i} className="chat-page-result-card">
+                            <div key={r.chunk_id || i} className="chat-page-result-card" onClick={() => setPreviewSource(r)} style={{ cursor: 'pointer' }}>
                               <div className="chat-page-result-header">
                                 <div className="chat-page-result-meta">
                                   <FileText size={14} />
@@ -429,7 +450,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                               <div className="chat-page-result-preview">{(r as any).text || r.text_preview}</div>
                               {(r.file_path || r.path) ? <div className="chat-page-result-path">
                                 {(r as any).drive_url ? (
-                                  <a href={(r as any).drive_url} target="_blank" rel="noopener noreferrer" style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <a href={(r as any).drive_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
                                     View in Google Drive
                                   </a>
                                 ) : (r.file_path || r.path) ? (
@@ -523,8 +544,16 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
             </div>
 
             <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask a question about your documents..." className="chat-page-input" />
-            <button type="button" onClick={startVoiceInput} className={`chat-page-send-button ${listening ? 'listening' : ''}`} aria-label="Voice input"><Mic size={16} /></button>
-            <button type="submit" disabled={loading || !input.trim()} className="chat-page-send-button" aria-label="Send message"><Send size={16} /></button>
+            {loading ? (
+              <button type="button" onClick={handleStopGeneration} className="chat-page-stop-button" aria-label="Stop generation">
+                <Square size={14} fill={color.chatAccent} color={color.chatAccent} style={{ marginRight: '6px' }} /> Stop
+              </button>
+            ) : (
+              <>
+                <button type="button" onClick={startVoiceInput} className={`chat-page-send-button ${listening ? 'listening' : ''}`} aria-label="Voice input"><Mic size={16} /></button>
+                <button type="submit" disabled={!input.trim()} className="chat-page-send-button" aria-label="Send message"><Send size={16} /></button>
+              </>
+            )}
           </div>
         </form>
       </main>
@@ -545,6 +574,57 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
             <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowDriveModal(false)} style={{ padding: '8px 16px', border: `1px solid ${color.border}`, borderRadius: radius.sm, background: 'white', fontSize: '13px', cursor: 'pointer', color: color.textSecondary }}>Cancel</button>
               <button onClick={handleDriveConnect} style={{ padding: '8px 16px', border: 'none', borderRadius: radius.sm, background: color.chatAccent, color: 'white', fontSize: '13px', cursor: 'pointer', fontWeight: 500 }}>Connect</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Citation Preview Modal */}
+      {previewSource && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '20px' }}>
+          <div style={{ background: color.surface, borderRadius: radius.lg, padding: '24px', width: '600px', maxWidth: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: `1px solid ${color.border}`, paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <FileText size={18} style={{ color: color.chatAccent }} />
+                <span style={{ fontSize: '15px', fontWeight: 600, color: color.textPrimary }}>Source Document Details</span>
+              </div>
+              <button onClick={() => setPreviewSource(null)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: color.textTertiary }}><X size={18} /></button>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13.5px', color: color.textPrimary, flex: 1 }}>
+              <div>
+                <strong>File Name:</strong> {previewSource.doc_name || previewSource.filename || 'Unknown'}
+              </div>
+              {previewSource.department && (
+                <div>
+                  <strong>Department:</strong> {previewSource.department}
+                </div>
+              )}
+              {previewSource.access_level && (
+                <div>
+                  <strong>Access Level Required:</strong> {previewSource.access_level}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: '16px' }}>
+                <div>
+                  <strong>Search Match Type:</strong> <span style={{ textTransform: 'capitalize', background: color.chatAccentSoft, padding: '2px 6px', borderRadius: radius.sm, fontSize: '12px', color: color.chatAccent }}>{previewSource.search_type}</span>
+                </div>
+                <div>
+                  <strong>Confidence:</strong> {(confidencePercent(previewSource)).toFixed(0)}%
+                </div>
+              </div>
+              {previewSource.file_path && (
+                <div style={{ fontSize: '12px', color: color.textTertiary }}>
+                  <strong>Path:</strong> {previewSource.file_path}
+                </div>
+              )}
+              
+              <div style={{ marginTop: '16px', borderTop: `1px solid ${color.border}`, paddingTop: '16px' }}>
+                <div style={{ fontWeight: 600, marginBottom: '8px' }}>Matched Context Snippet:</div>
+                <div style={{ background: '#fcfbf9', border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '16px', maxHeight: '300px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: font, fontSize: '13px', lineHeight: 1.5 }}>
+                  {previewSource.text_preview}
+                </div>
+              </div>
             </div>
           </div>
         </div>

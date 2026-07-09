@@ -10,7 +10,10 @@ from app.models import ChatMessage, ChatSession, User
 from app.routes.search_v1 import ChatRequest, search
 from app.services.auth import get_current_user
 from app.services.llm_service import build_chat_prompt, build_fallback_answer, LLMService, generate_suggested_questions, assemble_context
+from app.config.settings import get_settings
+from app.services.limiter import limiter
 
+settings = get_settings()
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
@@ -103,6 +106,7 @@ def get_session(
 
 
 @router.post("/sessions/{session_id}/messages/stream")
+@limiter.limit(settings.rate_limit_chat)
 def stream_chat(
     session_id: int,
     req: SendMessageRequest,

@@ -26,47 +26,53 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
 
 
 def _extract_pdf(path: Path) -> tuple[str, int]:
-    import fitz
-
+    import pdfplumber
     from app.config.settings import get_settings
+    from app.services.ocr_service import extract_text_cloud_ocr
 
     settings = get_settings()
-
-    doc = fitz.open(str(path))
     pages: list[str] = []
+    page_count = 0
 
-    # Try native text first for every page; fallback to OCR when text is too small.
-    for page in doc:
-        text = page.get_text()
-
-        if not text.strip():
-            blocks = page.get_text("blocks")
-            text = "\n".join(b[4] for b in blocks if b[4].strip())
-
-        # OCR fallback requires system tesseract + poppler (pdf2image).
-        # Trigger OCR when page text is empty OR very small.
-        should_ocr = not text.strip()
-        if not should_ocr:
+    with pdfplumber.open(str(path)) as pdf:
+        page_count = len(pdf.pages)
+        for i, page in enumerate(pdf.pages):
+            text = page.extract_text() or ""
+            
             try:
-                should_ocr = len(text.strip()) < settings.ocr_min_chars_per_page
+                tables = page.extract_tables()
+                if tables:
+                    for table in tables:
+                        if not table:
+                            continue
+                        table_str = "\n".join([" | ".join([str(cell or "").replace("\n", " ").strip() for cell in row]) for row in table])
+                        text += f"\n\n[Table extracted from Page {i+1}]:\n{table_str}\n"
             except Exception:
-                should_ocr = False
+                pass
 
-        if settings.ocr_enabled and should_ocr:
-            ocr_text, ocr_error = _ocr_pdf_page_fallback(path, page.number)
-            if ocr_error:
-                # Bubble up actionable error if OCR prerequisites are missing.
-                raise RuntimeError(ocr_error)
-            if ocr_text and ocr_text.strip():
-                text = ocr_text
-
-        # Skip pages that remain empty after OCR
-        if text and text.strip():
-            pages.append(text)
+            if text and text.strip():
+                pages.append(text)
 
     full_text = "\n".join(pages)
-    page_count = len(doc)
-    doc.close()
+    total_chars = len(full_text.strip())
+
+    if settings.ocr_enabled and (total_chars < settings.ocr_min_chars_per_page * page_count):
+        # Try cloud OCR first
+        cloud_text = extract_text_cloud_ocr(str(path))
+        if cloud_text and cloud_text.strip():
+            full_text = cloud_text
+        else:
+            # Fallback to local page-by-page OCR
+            ocr_pages = []
+            for page_num in range(page_count):
+                ocr_text, ocr_error = _ocr_pdf_page_fallback(path, page_num)
+                if ocr_error:
+                    raise RuntimeError(ocr_error)
+                if ocr_text and ocr_text.strip():
+                    ocr_pages.append(ocr_text)
+            if ocr_pages:
+                full_text = "\n".join(ocr_pages)
+
     cleaned = _clean(full_text)
     if not cleaned:
         raise ValueError("PDF extraction produced empty text (native+OCR)")
@@ -95,39 +101,31 @@ def _ocr_pdf_page_fallback(path: Path, page_number_zero_based: int) -> tuple[str
             "Please install Tesseract OCR."
         )
 
-    # 2) Convert PDF page using poppler utilities (pdftoppm)
+    # 2) Convert PDF page using fitz (PyMuPDF) which does not require Poppler
     try:
-        from pdf2image import convert_from_path
+        import fitz
+        from PIL import Image, ImageOps
+        import io
 
-        images = convert_from_path(
-            str(path),
-            first_page=page_number_zero_based + 1,
-            last_page=page_number_zero_based + 1,
-            dpi=300,
-        )
-        if not images:
-            return "", None
+        doc = fitz.open(str(path))
+        page = doc[page_number_zero_based]
+        pix = page.get_pixmap(dpi=300)
+        img_data = pix.tobytes("png")
+        doc.close()
 
-        img = images[0]
+        img = Image.open(io.BytesIO(img_data))
 
         # Basic preprocessing before OCR
         try:
-            from PIL import ImageOps
-
             gray = img.convert("L")
             gray = ImageOps.autocontrast(gray)
             img = gray
         except Exception:
             pass
 
-        import pytesseract
-
         return pytesseract.image_to_string(img).strip(), None
-    except Exception:
-        return "", (
-            "OCR failed: poppler (pdftoppm) is missing or pdf2image cannot run. "
-            "Install Poppler and ensure `pdftoppm.exe` is available in PATH."
-        )
+    except Exception as e:
+        return "", f"OCR page conversion failed: {e}"
 
 
 def _extract_docx(path: Path) -> tuple[str, None]:

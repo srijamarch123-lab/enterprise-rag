@@ -11,6 +11,10 @@ from app.services.extractor import extract_text
 
 
 def _should_extract(doc: Document) -> bool:
+    if doc.file_path and ("/tmp/" in doc.file_path or "\\tmp\\" in doc.file_path):
+        return False
+    if doc.filename and doc.filename.startswith("test_"):
+        return False
     return (
         doc.status in {DocumentStatus.failed, DocumentStatus.pending, DocumentStatus.extracting}
         or not doc.extracted_text

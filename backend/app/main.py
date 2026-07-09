@@ -2,6 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from app.services.limiter import limiter
 
 from app.database import init_db
 from app.routes.upload import router as upload_router
@@ -19,11 +22,12 @@ from app.routes.feedback import router as feedback_router
 
 
 app = FastAPI(
-
     title="Enterprise RAG API",
     description="Document ingestion, chunking, embedding, and semantic search",
     version="1.0.0",
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ─── CORS ────────────────────────────────────────────────────────────────────
 app.add_middleware(
@@ -63,6 +67,12 @@ if static_dir.exists():
 def on_startup():
     init_db()
     Path("uploads").mkdir(exist_ok=True)
+    try:
+        from app.services.embedder import _get_qdrant, ensure_collection
+        ensure_collection(_get_qdrant())
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Qdrant auto-provisioning skipped/failed: %s", exc)
 
 
 @app.get("/health")

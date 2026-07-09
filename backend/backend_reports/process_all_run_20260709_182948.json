@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-07-09T18:29:48.845665Z",
+  "process_all": {
+    "total": 38,
+    "processed": 30,
+    "extracted": 0,
+    "chunked": 30,
+    "embedded": 30,
+    "failed": 8,
+    "errors": {
+      "1": "OCR failed: poppler (pdftoppm) is missing or pdf2image cannot run. Install Poppler and ensure `pdftoppm.exe` is available in PATH.",
+      "3": "OCR failed: poppler (pdftoppm) is missing or pdf2image cannot run. Install Poppler and ensure `pdftoppm.exe` is available in PATH.",
+      "4": "OCR failed: poppler (pdftoppm) is missing or pdf2image cannot run. Install Poppler and ensure `pdftoppm.exe` is available in PATH.",
+      "5": "OCR failed: poppler (pdftoppm) is missing or pdf2image cannot run. Install Poppler and ensure `pdftoppm.exe` is available in PATH.",
+      "6": "OCR failed: poppler (pdftoppm) is missing or pdf2image cannot run. Install Poppler and ensure `pdftoppm.exe` is available in PATH.",
+      "37": "File not found: \\tmp\\test_public_policy.pdf",
+      "38": "File not found: \\tmp\\test_hr_salary.pdf",
+      "39": "File not found: \\tmp\\test_internal_policy.pdf"
+    },
+    "skipped": 0
+  },
+  "qdrant": {
+    "error": "8 validation errors for ParsingModel[InlineResponse2006] (for parse_as_type)\nobj.result.payload_schema.visible_roles.params.TextIndexParams.type\n  Input should be 'text' [type=enum, input_value='keyword', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/enum\nobj.result.payload_schema.visible_roles.params.IntegerIndexParams.type\n  Input should be 'integer' [type=enum, input_value='keyword', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/enum\nobj.result.payload_schema.visible_roles.params.IntegerIndexParams.lookup\n  Field required [type=missing, input_value={'type': 'keyword'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nobj.result.payload_schema.visible_roles.params.IntegerIndexParams.range\n  Field required [type=missing, input_value={'type': 'keyword'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nobj.result.payload_schema.department.params.TextIndexParams.type\n  Input should be 'text' [type=enum, input_value='keyword', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/enum\nobj.result.payload_schema.department.params.IntegerIndexParams.type\n  Input should be 'integer' [type=enum, input_value='keyword', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/enum\nobj.result.payload_schema.department.params.IntegerIndexParams.lookup\n  Field required [type=missing, input_value={'type': 'keyword'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing\nobj.result.payload_schema.department.params.IntegerIndexParams.range\n  Field required [type=missing, input_value={'type': 'keyword'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/missing"
+  }
+}

@@ -21,6 +21,7 @@ from app.services.extractor import extract_text
 from app.services.chunker import chunk_document
 from app.dependencies.rbac import require_manager_or_above, require_admin
 from app.services.audit import log_action
+from app.services.limiter import limiter
 
 settings = get_settings()
 
@@ -79,6 +80,7 @@ def _run_extraction(doc_id: int, db: Session):
 
 
 @router.post("/upload", status_code=201, dependencies=[Depends(require_manager_or_above)])
+@limiter.limit(settings.rate_limit_upload)
 def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -86,7 +88,6 @@ def upload_file(
     request: Request = None,
     db: Session = Depends(get_db),
 ):
-
     ext = _validate_file(file)
     saved_name, file_path, size = _save_file(file, ext)
 
@@ -118,7 +119,9 @@ def upload_file(
 
 
 @router.post("/upload/bulk", status_code=201, dependencies=[Depends(require_manager_or_above)])
+@limiter.limit(settings.rate_limit_upload)
 def upload_bulk(
+
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     department: str | None = None,

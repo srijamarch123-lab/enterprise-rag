@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     # If native page text has fewer than this many non-whitespace characters, we try OCR.
     ocr_min_chars_per_page: int = 50
 
+    # Azure Cognitive Services (OCR Failover)
+    azure_cognitive_key: str = ""
+    azure_cognitive_endpoint: str = ""
+
+    # Rate Limiting
+    rate_limit_chat: str = "10 per minute"
+    rate_limit_upload: str = "5 per minute"
+
     @property
     def allowed_extensions_list(self) -> list[str]:
         return [ext.strip() for ext in self.allowed_extensions.split(",")]
@@ -50,4 +58,8 @@ class Settings(BaseSettings):
 
 @lru_cache()
 def get_settings() -> Settings:
-    return Settings()
+    import secrets
+    settings = Settings()
+    if not settings.jwt_secret_key or settings.jwt_secret_key == "change-me":
+        settings.jwt_secret_key = secrets.token_hex(32)
+    return settings
