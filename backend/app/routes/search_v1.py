@@ -513,6 +513,14 @@ def search(
                     result["drive_file_id"] = doc.drive_file_id
                     result["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
 
+        # Enrich results with full chunk text and drive_url from DB
+        for result in merged_results:
+            chunk_id = result.get("chunk_id")
+            if chunk_id:
+                chunk = db.query(Chunk).filter(Chunk.id == chunk_id).first()
+                if chunk and chunk.text:
+                    result["text"] = chunk.text
+                    result["text_preview"] = chunk.text[:200]
         # Enrich results with drive_url from Document table
         for result in merged_results:
             doc_id = result.get("document_id")
