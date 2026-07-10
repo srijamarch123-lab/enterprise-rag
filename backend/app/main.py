@@ -5,6 +5,7 @@ from pathlib import Path
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.services.limiter import limiter
+from fastapi.responses import RedirectResponse
 
 from app.database import init_db
 from app.routes.upload import router as upload_router
@@ -82,5 +83,6 @@ def health():
 
 @app.get("/")
 def root():
-    return {"message": "Enterprise RAG API — see /docs for Swagger UI"}
+    # Redirect base URL to Swagger UI so Render's root endpoint shows the UI
+    return RedirectResponse(url="/docs", status_code=302)
 
