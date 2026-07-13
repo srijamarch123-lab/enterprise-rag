@@ -33,7 +33,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ─── CORS ────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "https://*.onrender.com"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000", "https://*.onrender.com", "https://enterprise-rag-frontend-ez1k.onrender.com"],
     allow_credentials=True,
     expose_headers=["Set-Cookie"],
 
