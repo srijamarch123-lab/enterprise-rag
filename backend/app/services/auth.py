@@ -114,20 +114,29 @@ def create_reset_token(user_id: int, db: Session) -> str:
 # --- Cookie utilities -------------------------------------------------------
 
 def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -> None:
-    # Use conservative cookie flags.
+    import os
+    is_render = os.environ.get("RENDER") == "true"
     response.set_cookie(
         key=name,
         value=token,
         httponly=True,
-        secure=False,  # best-effort; overridden by env if present
-        samesite="lax",
+        secure=is_render,
+        samesite="none" if is_render else "lax",
         path="/",
         max_age=max_age,
     )
 
 
 def clear_jwt_cookie(response: Response, name: str) -> None:
-    response.delete_cookie(key=name, path="/", samesite="lax")
+    import os
+    is_render = os.environ.get("RENDER") == "true"
+    response.delete_cookie(
+        key=name,
+        path="/",
+        samesite="none" if is_render else "lax",
+        secure=is_render,
+    )
+
 
 
 
