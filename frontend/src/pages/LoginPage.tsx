@@ -38,7 +38,9 @@ export default function LoginPage({ onLogin }: Props) {
         setError("Please check your email and password format.")
       } else if (err.message === "Network Error") {
         console.error("Network Error:", err)
-        setError("Cannot reach the server. Is the backend running on localhost:8000?")
+        const host = import.meta.env.VITE_API_URL || "http://localhost:8000"
+        setError(`Cannot reach the server. Is the backend running and accessible at ${host}?`)
+
       } else {
         console.error("Login failed:", err)
         setError(err.response?.data?.detail ?? "Login failed. Please try again.")
