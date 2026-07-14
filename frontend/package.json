@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "dev:render": "vite --mode render",
+    "dev": "vite --mode render",
+    "dev:local": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
