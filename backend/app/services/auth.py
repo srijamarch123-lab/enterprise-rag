@@ -115,7 +115,7 @@ def create_reset_token(user_id: int, db: Session) -> str:
 
 def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -> None:
     import os
-    is_render = os.environ.get("RENDER") == "true"
+    is_render = os.environ.get("RENDER") == "true" or os.environ.get("RAILWAY_ENVIRONMENT") is not None
     response.set_cookie(
         key=name,
         value=token,
@@ -129,7 +129,7 @@ def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -
 
 def clear_jwt_cookie(response: Response, name: str) -> None:
     import os
-    is_render = os.environ.get("RENDER") == "true"
+    is_render = os.environ.get("RENDER") == "true" or os.environ.get("RAILWAY_ENVIRONMENT") is not None
     response.delete_cookie(
         key=name,
         path="/",
