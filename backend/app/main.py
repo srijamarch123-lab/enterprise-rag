@@ -38,7 +38,7 @@ app.add_middleware(
         "http://localhost:3000",
         "https://enterprise-rag-frontend-ez1k.onrender.com",
     ],
-    allow_origin_regex=r"https://.*\.onrender\.com",
+    allow_origin_regex=r"https://.*(\.onrender\.com|\.up\.railway\.app)",
     allow_credentials=True,
     expose_headers=["Set-Cookie"],
     allow_methods=["*"],
