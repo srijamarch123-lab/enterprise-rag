@@ -71,6 +71,8 @@ if static_dir.exists():
 def on_startup():
     init_db()
     Path("uploads").mkdir(exist_ok=True)
+    from app.startup import create_default_admin
+    create_default_admin()
     try:
         from app.services.embedder import _get_qdrant, ensure_collection
         ensure_collection(_get_qdrant())
