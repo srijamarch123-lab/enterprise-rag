@@ -267,7 +267,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       }
     } finally {
       setLoading(false)
-      if (currentActiveId) { setTimeout(() => loadSessionMessages(currentActiveId), 800) }
+      if (currentActiveId) { setTimeout(() => loadSessionMessages(currentActiveId), 2000) }
       abortControllerRef  }
   }
 
