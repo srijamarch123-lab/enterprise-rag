@@ -417,9 +417,9 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                   <div className="chat-page-message-error">{m.error}</div>
                 ) : (
                   <div className="chat-page-message-column">
-                    {m.answer ? (
+                    {(m.answer || m.content) ? (
                       <div className="chat-page-message-answer-plain">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.answer}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.answer || m.content || ""}</ReactMarkdown>
                       </div>
                     ) : loading && m.id === active.messages[active.messages.length - 1]?.id ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8B8574', fontSize: '13px', padding: '4px 0' }}>
