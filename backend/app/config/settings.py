@@ -53,7 +53,14 @@ class Settings(BaseSettings):
         return [ext.strip() for ext in self.allowed_extensions.split(",")]
 
     class Config:
+        import os
+        from pathlib import Path
+        
         env_file = ".env"
+        if not os.path.exists(env_file):
+            fallback = Path(__file__).parent.parent.parent / ".env"
+            if fallback.exists():
+                env_file = str(fallback)
         env_file_encoding = "utf-8"
 
 
