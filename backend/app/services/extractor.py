@@ -26,6 +26,7 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
 
 
 def _extract_pdf(path: Path) -> tuple[str, int]:
+    # Import pdfplumber dynamically to extract text and tables from PDFs
     import pdfplumber
     from app.config.settings import get_settings
     from app.services.ocr_service import extract_text_cloud_ocr

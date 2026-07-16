@@ -7,6 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from app.services.limiter import limiter
 from fastapi.responses import RedirectResponse
 
+from app.config.settings import get_settings
 from app.database import init_db
 from app.routes.upload import router as upload_router
 from app.routes.chunks import router as chunks_router
@@ -21,6 +22,7 @@ from app.routes.extract import router as extract_router
 from app.routes.chat_sessions import router as chat_sessions_router
 from app.routes.feedback import router as feedback_router
 
+settings = get_settings()
 
 app = FastAPI(
     title="Enterprise RAG API",
@@ -31,13 +33,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ─── CORS ────────────────────────────────────────────────────────────────────
+cors_origins = [origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://enterprise-rag-frontend-ez1k.onrender.com",
-    ],
+    allow_origins=cors_origins,
     allow_origin_regex=r"https://.*(\.onrender\.com|\.up\.railway\.app)",
     allow_credentials=True,
     expose_headers=["Set-Cookie"],
