@@ -35,10 +35,13 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
     import pdfplumber
     from app.config.settings import get_settings
     from app.services.ocr_service import extract_text_cloud_ocr
+    import logging
 
+    logger = logging.getLogger(__name__)
     settings = get_settings()
-    pages: list[str] = []
+    page_texts: list[str] = []
     page_count = 0
+    pages_needing_ocr: list[int] = []
 
     with pdfplumber.open(str(path)) as pdf:
         page_count = len(pdf.pages)
@@ -56,46 +59,63 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
             except Exception:
                 pass
 
-            if text and text.strip():
-                pages.append(text)
+            page_texts.append(text)
+            
+            # Check if this specific page needs OCR
+            if settings.ocr_enabled and len(text.strip()) < settings.ocr_min_chars_per_page:
+                pages_needing_ocr.append(i)
 
-    full_text = "\n".join(pages)
-    total_chars = len(full_text.strip())
+    # If some pages need OCR
+    if pages_needing_ocr:
+        has_cloud_ocr = False
+        key = os.environ.get("AZURE_COGNITIVE_KEY") or getattr(settings, "azure_cognitive_key", None)
+        endpoint = os.environ.get("AZURE_COGNITIVE_ENDPOINT") or getattr(settings, "azure_cognitive_endpoint", None)
+        if key and endpoint:
+            has_cloud_ocr = True
 
-    if settings.ocr_enabled and (total_chars < settings.ocr_min_chars_per_page * page_count):
-        # Try cloud OCR first
-        cloud_text = extract_text_cloud_ocr(str(path))
-        if cloud_text and cloud_text.strip():
-            full_text = cloud_text
-        else:
-            # Fallback to local page-by-page OCR
+        cloud_success = False
+        if has_cloud_ocr:
+            logger.info("Attempting Azure Cloud OCR for scanned pages...")
+            cloud_text = extract_text_cloud_ocr(str(path))
+            if cloud_text and cloud_text.strip():
+                # Cloud OCR succeeded, it handles the entire document
+                page_texts = [cloud_text]
+                cloud_success = True
+
+        if not cloud_success:
+            # Fallback to local page-by-page OCR for ONLY the pages that need it
             from concurrent.futures import ThreadPoolExecutor
+            logger.info(f"Attempting local Tesseract OCR for {len(pages_needing_ocr)} page(s)...")
 
             def ocr_page(page_num):
                 txt, err = _ocr_pdf_page_fallback(path, page_num)
                 return page_num, txt, err
 
-            ocr_results = [None] * page_count
+            ocr_results = {}
             errors = []
 
-            with ThreadPoolExecutor(max_workers=min(4, page_count or 1)) as executor:
-                futures = [executor.submit(ocr_page, p) for p in range(page_count)]
+            with ThreadPoolExecutor(max_workers=min(4, len(pages_needing_ocr) or 1)) as executor:
+                futures = {executor.submit(ocr_page, p): p for p in pages_needing_ocr}
                 for fut in futures:
+                    p_num = futures[fut]
                     try:
-                        p_num, txt, err = fut.result()
+                        _, txt, err = fut.result()
                         if err:
                             errors.append(err)
-                        ocr_results[p_num] = txt
+                        if txt and txt.strip():
+                            ocr_results[p_num] = txt
                     except Exception as e:
                         errors.append(str(e))
 
             if errors:
-                raise RuntimeError(f"OCR failed: {errors[0]}")
+                logger.warning(f"Local OCR encountered errors: {errors}")
 
-            ocr_pages = [t for t in ocr_results if t and t.strip()]
-            if ocr_pages:
-                full_text = "\n".join(ocr_pages)
+            # Merge the OCR results back into page_texts
+            for p_num, ocr_txt in ocr_results.items():
+                if len(ocr_txt.strip()) > len(page_texts[p_num].strip()):
+                    page_texts[p_num] = ocr_txt
 
+    full_text = "\n".join(page_texts)
     cleaned = _clean(full_text)
     if not cleaned:
         raise ValueError("PDF extraction produced empty text (native+OCR)")
