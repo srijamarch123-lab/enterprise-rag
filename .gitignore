@@ -29,3 +29,7 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# fastembed cache
+fastembed_cache/
+backend/fastembed_cache/

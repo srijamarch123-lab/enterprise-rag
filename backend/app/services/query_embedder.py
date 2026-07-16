@@ -16,8 +16,12 @@ MAX_CACHE_SIZE = 100
 def get_embedder() -> TextEmbedding:
     global _embedder
     if _embedder is None:
-        _embedder = TextEmbedding(MODEL_NAME)
+        import os
+        cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        _embedder = TextEmbedding(MODEL_NAME, cache_dir=cache_dir)
     return _embedder
+
 
 def embed_query(query: str) -> list[float]:
     query_key = query.lower().strip()

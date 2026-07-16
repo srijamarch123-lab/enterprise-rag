@@ -16,8 +16,12 @@ _model = None
 def _get_model():
     global _model
     if _model is None:
-        _model = TextEmbedding("BAAI/bge-small-en-v1.5")
+        import os
+        cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
+        os.makedirs(cache_dir, exist_ok=True)
+        _model = TextEmbedding("BAAI/bge-small-en-v1.5", cache_dir=cache_dir)
     return _model
+
 
 def _get_qdrant() -> QdrantClient:
     return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)

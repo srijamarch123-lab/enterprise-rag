@@ -210,7 +210,8 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     abortControllerRef.current = controller
 
     try {
-      const response = await fetch(`/api/chat/sessions/${currentActiveId}/messages/stream`, {
+      const baseUrl = import.meta.env.VITE_API_URL || ''
+      const response = await fetch(`${baseUrl}/api/chat/sessions/${currentActiveId}/messages/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

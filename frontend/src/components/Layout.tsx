@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { FileText, Upload, HardDrive, Users, LogOut, Cpu, Search } from 'lucide-react'
+import { logout } from '../services/api'
 
 const nav = [
   { to: '/documents', icon: FileText, label: 'Documents' },
@@ -15,7 +16,7 @@ export default function Layout() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      await logout()
     } finally {
       navigate('/login')
     }

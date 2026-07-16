@@ -201,6 +201,10 @@ def stream_chat(
         except Exception as exc:  # pragma: no cover - defensive fallback
             import logging
             logging.getLogger(__name__).error("Stream error: %s", exc, exc_info=True)
+            try:
+                db.rollback()
+            except Exception:
+                pass
             final_text = build_fallback_answer(req.content, chunks)
             suggestions = ["Summarize the sources", "Show the key points", "What other documents relate to this?"]
             assistant_message = ChatMessage(

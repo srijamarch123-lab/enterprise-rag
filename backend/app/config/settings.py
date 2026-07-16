@@ -60,7 +60,15 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings() -> Settings:
     import secrets
+    import os
     settings = Settings()
+    
+    # Fallback to DB_URL if DATABASE_URL is not set or is set to default SQLite
+    db_url = os.environ.get("DB_URL")
+    if db_url and (settings.database_url == "sqlite:///./rag_demo.db" or not settings.database_url):
+        settings.database_url = db_url
+
     if not settings.jwt_secret_key or settings.jwt_secret_key == "change-me":
         settings.jwt_secret_key = secrets.token_hex(32)
     return settings
+

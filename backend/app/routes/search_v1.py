@@ -33,10 +33,14 @@ def _get_reranker():
     if _reranker is None:
         try:
             from fastembed.rerank.cross_encoder import TextCrossEncoder
-            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2")
+            import os
+            cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
+            os.makedirs(cache_dir, exist_ok=True)
+            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2", cache_dir=cache_dir)
         except Exception as e:
             logger.warning("Failed to initialize TextCrossEncoder: %s", e)
     return _reranker
+
 
 def _rerank_with_cross_encoder(query: str, merged_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not merged_results:
