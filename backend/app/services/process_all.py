@@ -89,3 +89,14 @@ def process_all_documents(db: Session) -> dict:
 
     return results
 
+
+
+def process_single_document(doc, db):
+    """Process a single document: extract, chunk, embed."""
+    from app.services.process_all import process_all_documents
+    from app.models import DocumentStatus
+    try:
+        # Just call process_all which handles pending docs
+        process_all_documents(db)
+    except Exception as e:
+        print(f"Auto-process failed: {e}")

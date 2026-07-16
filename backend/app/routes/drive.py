@@ -150,4 +150,13 @@ def import_all(req: ImportAllRequest, db: Session = Depends(get_db)):
             results.append({"id": doc.id, "filename": f["name"], "skipped": False})
         except Exception as e:
             results.append({"filename": f["name"], "error": str(e)})
+    # Auto-process all newly imported documents
+    try:
+        from app.services.process_all import process_all_documents
+        import threading
+        t = threading.Thread(target=process_all_documents, args=(db,))
+        t.daemon = True
+        t.start()
+    except Exception as e:
+        pass
     return results
