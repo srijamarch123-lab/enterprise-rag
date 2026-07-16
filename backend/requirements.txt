@@ -135,4 +135,4 @@ pdfplumber==0.11.4
 slowapi==0.1.9
 psycopg2-binary==2.9.9
 
-qdrant-client==1.9.1
+qdrant-client==1.11.0
