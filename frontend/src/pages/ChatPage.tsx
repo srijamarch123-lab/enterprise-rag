@@ -152,7 +152,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     setSessionDoc(null)
   }
 
-  const loadSessionMessages = async (sessionId: string) => {
+  const loadSessionMessages = async (sessionId: string, mergeOnly = false) => {
     try {
       const { data } = await api.get(`/chat/sessions/${sessionId}`)
       const mappedMessages = (data.messages || []).map((m: any) => ({
@@ -166,7 +166,16 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         suggestions: Array.isArray(m?.metadata?.suggestions) ? m.metadata.suggestions : [],
         feedbackSubmitted: m?.metadata?.feedbackSubmitted,
       }))
-      setConversations((prev) => prev.map((c) => (c.id === sessionId ? { ...c, messages: mappedMessages } : c)))
+      setConversations((prev) => prev.map((c) => {
+        if (c.id !== sessionId) return c
+        if (mergeOnly) {
+          // Keep local messages, only add ones from DB that have content
+          const localIds = new Set(c.messages.map((m: any) => m.id))
+          const newMsgs = mappedMessages.filter((m: any) => !localIds.has(m.id) && m.content)
+          return { ...c, messages: [...c.messages, ...newMsgs] }
+        }
+        return { ...c, messages: mappedMessages }
+      }))
       // Restore uploaded doc if session has one
       if (data.session_doc && data.session_doc_name) {
         setSessionDoc({ filename: data.session_doc_name, text: data.session_doc })
@@ -267,7 +276,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       }
     } finally {
       setLoading(false)
-      if (currentActiveId) { setTimeout(() => loadSessionMessages(currentActiveId), 2000) }
+      if (currentActiveId) { setTimeout(() => loadSessionMessages(currentActiveId, true), 1500) }
       abortControllerRef  }
   }
 
