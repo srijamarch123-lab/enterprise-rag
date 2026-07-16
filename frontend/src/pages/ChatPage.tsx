@@ -267,8 +267,8 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       }
     } finally {
       setLoading(false)
-      abortControllerRef.current = null
-    }
+      if (currentActiveId) { setTimeout(() => loadSessionMessages(currentActiveId), 800) }
+      abortControllerRef  }
   }
 
   const handleStopGeneration = () => {
