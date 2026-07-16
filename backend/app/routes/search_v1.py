@@ -429,7 +429,9 @@ def search(
         )
 
         # Cross-Encoder Reranking
-        merged_results = _rerank_with_cross_encoder(req.query, merged_results)
+        import os
+        if not os.environ.get("DISABLE_RERANKER"):
+            merged_results = _rerank_with_cross_encoder(req.query, merged_results)
         merged_results = merged_results[:RERANK_TOP_K]
         
         top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
