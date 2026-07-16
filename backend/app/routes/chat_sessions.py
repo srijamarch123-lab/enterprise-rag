@@ -105,6 +105,23 @@ def get_session(
 
 
 
+def truncate_chat_history(history: list[dict], max_tokens: int = 1500) -> list[dict]:
+    """
+    Keep only the most recent messages from history that fit within the token limit.
+    """
+    from app.services.llm_service import count_tokens
+    truncated = []
+    total_tokens = 0
+    for msg in reversed(history):
+        content = msg.get("content") or ""
+        msg_tokens = count_tokens(content) + 10  # approximate overhead
+        if total_tokens + msg_tokens > max_tokens:
+            break
+        truncated.append(msg)
+        total_tokens += msg_tokens
+    return list(reversed(truncated))
+
+
 @router.post("/sessions/{session_id}/messages/stream")
 @limiter.limit(settings.rate_limit_chat)
 def stream_chat(
@@ -136,6 +153,11 @@ def stream_chat(
             "session_doc_name": req.session_doc_name or "uploaded_document"
         }
 
+    # Update session title if it's the default "New chat"
+    if session.title == "New chat":
+        session.title = req.content.strip()[:40] or "New chat"
+        session.updated_at = __import__("datetime").datetime.utcnow()
+
     db.commit()
     db.refresh(user_message)
 
@@ -153,6 +175,9 @@ def stream_chat(
         {"role": msg["role"], "content": msg["content"]}
         for msg in history_messages[:-1]
     ]
+
+    # Implement sliding history window
+    history_for_prompt = truncate_chat_history(history_for_prompt)
 
     # Inject uploaded session document as extra context
     extra_chunks = []

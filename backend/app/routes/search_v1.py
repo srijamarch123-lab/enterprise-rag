@@ -1,6 +1,7 @@
 from typing import Optional, Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from app.services.limiter import limiter
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter
@@ -283,12 +284,37 @@ def _merge_results(
     top_k: int,
     confidence_threshold: float = CONFIDENCE_THRESHOLD,
 ) -> tuple[list[dict], bool]:
-    """Merge and re-rank with confidence threshold. Returns (results, has_answer)."""
-    semantic_max = max((h.score for h in semantic_hits), default=0)
-    bm25_max = max((b.get("bm25_score", 0) for b in bm25_results), default=0)
+    """Merge and re-rank with Reciprocal Rank Fusion (RRF) and metadata boosts. Returns (results, has_answer)."""
+    # 1. Map chunk_id to ranks (1-indexed)
+    semantic_ranks = {}
+    for rank, h in enumerate(semantic_hits, 1):
+        chunk_id = h.payload.get("chunk_id") if h.payload else None
+        if chunk_id:
+            semantic_ranks[chunk_id] = rank
+
+    bm25_ranks = {}
+    for rank, b in enumerate(bm25_results, 1):
+        chunk_id = b.get("chunk_id")
+        if chunk_id:
+            bm25_ranks[chunk_id] = rank
+
+    # Constant k for RRF
+    k = 60
+    # Max possible RRF score with k=60 (if item ranks first in both lists) is 1/61 + 1/61
+    max_possible_rrf = (1.0 / (k + 1)) * 2
 
     seen = set()
     merged: list[dict] = []
+
+    def get_rrf(cid):
+        sem_rank = semantic_ranks.get(cid)
+        bm_rank = bm25_ranks.get(cid)
+        score = 0.0
+        if sem_rank is not None:
+            score += 1.0 / (k + sem_rank)
+        if bm_rank is not None:
+            score += 1.0 / (k + bm_rank)
+        return score
 
     semantic_idx = 0
     bm25_idx = 0
@@ -299,10 +325,12 @@ def _merge_results(
             chunk_id = h.payload.get("chunk_id") if h.payload else None
             if chunk_id and chunk_id not in seen:
                 seen.add(chunk_id)
+                rrf_val = get_rrf(chunk_id)
                 merged.append(
                     {
                         "score": h.score,
                         "semantic_score": h.score,
+                        "bm25_score": 0.0,
                         "qdrant_point_id": h.id,
                         "chunk_id": chunk_id,
                         "document_id": h.payload.get("document_id") if h.payload else None,
@@ -312,7 +340,8 @@ def _merge_results(
                         "department": h.payload.get("department") if h.payload else None,
                         "access_level": h.payload.get("access_level") if h.payload else None,
                         "filename": h.payload.get("filename") if h.payload else None,
-                        "search_type": "semantic",
+                        "search_type": "hybrid",
+                        "rrf_score": rrf_val,
                     }
                 )
             semantic_idx += 1
@@ -323,10 +352,11 @@ def _merge_results(
             chunk_id = b.get("chunk_id")
             if chunk_id and chunk_id not in seen:
                 seen.add(chunk_id)
+                rrf_val = get_rrf(chunk_id)
                 merged.append(
                     {
                         "score": b.get("bm25_score", 0),
-                        "semantic_score": 0,
+                        "semantic_score": 0.0,
                         "bm25_score": b.get("bm25_score", 0),
                         "chunk_id": chunk_id,
                         "document_id": b.get("document_id"),
@@ -336,7 +366,8 @@ def _merge_results(
                         "department": b.get("department"),
                         "access_level": b.get("access_level"),
                         "filename": b.get("filename"),
-                        "search_type": "bm25",
+                        "search_type": "hybrid",
+                        "rrf_score": rrf_val,
                     }
                 )
             bm25_idx += 1
@@ -345,7 +376,16 @@ def _merge_results(
         break
 
     for m in merged:
-        m["combined_score"] = _calculate_combined_score(m, semantic_max, bm25_max)
+        norm_rrf = m["rrf_score"] / max_possible_rrf
+        meta_boost = 0.0
+        access_level = m.get("access_level", "")
+        if access_level == "internal":
+            meta_boost = 0.05
+        elif access_level == "confidential":
+            meta_boost = 0.08
+        elif access_level == "restricted":
+            meta_boost = 0.1
+        m["combined_score"] = norm_rrf + meta_boost
 
     merged.sort(key=lambda x: x.get("combined_score", 0), reverse=True)
 
@@ -357,7 +397,6 @@ def _merge_results(
     return results if has_answer else [], has_answer
 
 
-@router.post("/search")
 def search(
     req: SearchRequest,
     current_user: User = Depends(get_current_user),
@@ -525,7 +564,7 @@ def search(
             if chunk_id:
                 chunk = db.query(Chunk).filter(Chunk.id == chunk_id).first()
                 if chunk and chunk.text:
-                    result["text"] = chunk.text
+                    result["text"] = chunk.parent_text if chunk.parent_text else chunk.text
                     result["text_preview"] = chunk.text[:200]
         # Enrich results with drive_url from Document table
         for result in merged_results:
@@ -553,6 +592,17 @@ def search(
     except Exception as e:
         # Preserve original behavior: 500 with error detail (for debugging)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/search")
+@limiter.limit("20 per minute")
+def search_endpoint(
+    req: SearchRequest,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return search(req, current_user=current_user, db=db)
 
 
 @router.post("/chat")

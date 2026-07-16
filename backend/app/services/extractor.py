@@ -69,13 +69,30 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
             full_text = cloud_text
         else:
             # Fallback to local page-by-page OCR
-            ocr_pages = []
-            for page_num in range(page_count):
-                ocr_text, ocr_error = _ocr_pdf_page_fallback(path, page_num)
-                if ocr_error:
-                    raise RuntimeError(ocr_error)
-                if ocr_text and ocr_text.strip():
-                    ocr_pages.append(ocr_text)
+            from concurrent.futures import ThreadPoolExecutor
+
+            def ocr_page(page_num):
+                txt, err = _ocr_pdf_page_fallback(path, page_num)
+                return page_num, txt, err
+
+            ocr_results = [None] * page_count
+            errors = []
+
+            with ThreadPoolExecutor(max_workers=min(4, page_count or 1)) as executor:
+                futures = [executor.submit(ocr_page, p) for p in range(page_count)]
+                for fut in futures:
+                    try:
+                        p_num, txt, err = fut.result()
+                        if err:
+                            errors.append(err)
+                        ocr_results[p_num] = txt
+                    except Exception as e:
+                        errors.append(str(e))
+
+            if errors:
+                raise RuntimeError(f"OCR failed: {errors[0]}")
+
+            ocr_pages = [t for t in ocr_results if t and t.strip()]
             if ocr_pages:
                 full_text = "\n".join(ocr_pages)
 
@@ -137,7 +154,8 @@ def _ocr_pdf_page_fallback(path: Path, page_number_zero_based: int) -> tuple[str
 def _extract_docx(path: Path) -> tuple[str, None]:
     from docx import Document
 
-    doc = Document(str(path))
+    with open(path, "rb") as f:
+        doc = Document(f)
     text = "\n".join(para.text for para in doc.paragraphs)
     return _clean(text), None
 
@@ -145,7 +163,8 @@ def _extract_docx(path: Path) -> tuple[str, None]:
 def _extract_pptx(path: Path) -> tuple[str, int]:
     from pptx import Presentation
 
-    prs = Presentation(str(path))
+    with open(path, "rb") as f:
+        prs = Presentation(f)
     slides = []
     for slide in prs.slides:
         slide_text = []

@@ -107,6 +107,7 @@ def embed_document(document: Document, db: Session) -> dict:
                     "filename": document.original_filename,
                     "file_type": document.file_type,
                     "text_preview": chunk.text[:200],
+                    "parent_text": chunk.parent_text,
                 },
             )
 

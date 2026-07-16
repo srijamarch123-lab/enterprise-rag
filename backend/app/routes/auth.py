@@ -80,10 +80,12 @@ def _log(db: Session, user_id: int | None, action: str, **kwargs):
     db.commit()
 
 
+from app.services.limiter import limiter
+
+
 # ─── Auth endpoints ─────────────────────────────────────────────────────────
 
 
-@router.post("/register", status_code=201)
 def register(req: RegisterRequest, db: Session = Depends(get_db)):
     email_norm = req.email.lower().strip()
     if db.query(User).filter(User.email == email_norm).first():
@@ -102,7 +104,6 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     return {"id": user.id, "email": user.email, "role": user.role}
 
 
-@router.post("/login")
 def login(
     req: LoginRequest,
     response: Response,
@@ -152,7 +153,7 @@ def login(
         _log(db, user.id, "login", ip_address=client_ip, details={"email": user.email, "role": str(user.role)})
 
         return {"role": user.role, "message": "Logged in"}
-    
+
     except HTTPException:
         raise  # Re-raise HTTP exceptions (401, 403, etc.)
     except Exception as e:
@@ -160,15 +161,48 @@ def login(
         raise HTTPException(500, "Internal server error")
 
 
+@router.post("/register", status_code=201)
+@limiter.limit("10 per minute")
+def register_endpoint(req: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    return register(req, db)
+
+
+@router.post("/login")
+@limiter.limit("15 per minute")
+def login_endpoint(
+    req: LoginRequest,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    return login(req, response, request, db)
+
+
 
 @router.post("/logout")
-
 def logout(
     request: Request,
     response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # Blacklist tokens in Redis to invalidate immediately
+    from app.services.redis_service import get_redis_client
+    redis_client = get_redis_client()
+    for cookie_name in ("access_token", "refresh_token"):
+        tok = request.cookies.get(cookie_name)
+        if tok:
+            try:
+                payload = decode_token(tok)
+                exp = payload.get("exp")
+                if exp:
+                    import time
+                    remaining = int(exp - time.time())
+                    if remaining > 0:
+                        redis_client.set(f"jwt_blacklist:{tok}", "1", ex=remaining)
+            except Exception:
+                pass
+
     # Best-effort invalidation: bump token_version so current cookie becomes unusable.
     current_user.token_version += 1
     db.commit()

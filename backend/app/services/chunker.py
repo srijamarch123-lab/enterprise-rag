@@ -17,9 +17,18 @@ def _token_len(text: str) -> int:
     return len(_enc.encode(text))
 
 
-_splitter = RecursiveCharacterTextSplitter(
+# Child Splitter (based on settings)
+_child_splitter = RecursiveCharacterTextSplitter(
     chunk_size=settings.chunk_size,
     chunk_overlap=settings.chunk_overlap,
+    length_function=_token_len,
+    separators=["\n\n", "\n", ". ", " ", ""],
+)
+
+# Parent Splitter (larger context, e.g., 2x child size)
+_parent_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=settings.chunk_size * 2,
+    chunk_overlap=settings.chunk_overlap * 2,
     length_function=_token_len,
     separators=["\n\n", "\n", ". ", " ", ""],
 )
@@ -27,7 +36,7 @@ _splitter = RecursiveCharacterTextSplitter(
 
 def chunk_document(document: Document, db: Session) -> list[Chunk]:
     """
-    Split document extracted_text into chunks, persist to DB, return chunks.
+    Split document extracted_text into hierarchical parent-child chunks, persist to DB, return chunks.
     """
     if not document.extracted_text:
         raise ValueError(f"Document {document.id} has no extracted text.")
@@ -35,17 +44,26 @@ def chunk_document(document: Document, db: Session) -> list[Chunk]:
     # Delete any existing chunks for this document
     db.query(Chunk).filter(Chunk.document_id == document.id).delete()
 
-    texts = _splitter.split_text(document.extracted_text)
+    # Split into parent chunks
+    parent_texts = _parent_splitter.split_text(document.extracted_text)
+
     chunks = []
-    for idx, text in enumerate(texts):
-        chunk = Chunk(
-            document_id=document.id,
-            chunk_index=idx,
-            text=text,
-            token_count=_token_len(text),
-        )
-        db.add(chunk)
-        chunks.append(chunk)
+    chunk_index = 0
+    for p_text in parent_texts:
+        # Split each parent chunk into smaller child chunks
+        child_texts = _child_splitter.split_text(p_text)
+
+        for c_text in child_texts:
+            chunk = Chunk(
+                document_id=document.id,
+                chunk_index=chunk_index,
+                text=c_text,
+                parent_text=p_text,
+                token_count=_token_len(c_text),
+            )
+            db.add(chunk)
+            chunks.append(chunk)
+            chunk_index += 1
 
     document.status = DocumentStatus.chunked
     db.commit()

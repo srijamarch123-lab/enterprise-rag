@@ -168,13 +168,14 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       }))
       setConversations((prev) => prev.map((c) => {
         if (c.id !== sessionId) return c
+        const title = data.title && data.title !== 'New chat' ? data.title : c.title
         if (mergeOnly) {
           // Keep local messages, only add ones from DB that have content
           const localIds = new Set(c.messages.map((m: any) => m.id))
           const newMsgs = mappedMessages.filter((m: any) => !localIds.has(m.id) && m.content)
-          return { ...c, messages: [...c.messages, ...newMsgs] }
+          return { ...c, title, messages: [...c.messages, ...newMsgs] }
         }
-        return { ...c, messages: mappedMessages }
+        return { ...c, title, messages: mappedMessages }
       }))
       // Restore uploaded doc if session has one
       if (data.session_doc && data.session_doc_name) {

@@ -23,8 +23,8 @@ def create_test_data():
     """Create test documents with different access levels for testing."""
     # Ensure DB schema exists for local test runs.
     # Some dev setups may not have tables created yet.
-    from app.database import Base
-    Base.metadata.create_all(bind=engine)
+    from app.database import init_db
+    init_db()
 
     db = SessionLocal()
 

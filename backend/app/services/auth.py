@@ -62,6 +62,16 @@ def get_current_user(
     if not access_token:
         raise HTTPException(status_code=401, detail="Missing access token")
 
+    from app.services.redis_service import get_redis_client
+    redis_client = get_redis_client()
+    try:
+        if redis_client.get(f"jwt_blacklist:{access_token}"):
+            raise HTTPException(status_code=401, detail="Token has been revoked")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     payload = decode_token(access_token)
     user_id_raw = payload.get("sub")
     user_id: int | None = int(user_id_raw) if user_id_raw is not None else None
