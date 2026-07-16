@@ -171,12 +171,11 @@ def stream_chat(
         assistant_chunks: list[str] = []
         try:
             llm = LLMService()
-            for token in llm.stream_chat_completion(prompt_messages, max_tokens=900):
-                assistant_chunks.append(token)
-                yield f"data: {token}\n\n"
-            final_text = "".join(assistant_chunks).strip()
+            final_text = llm.chat_completion(prompt_messages, max_tokens=900)
             if not final_text:
                 final_text = build_fallback_answer(req.content, chunks)
+            assistant_chunks = [final_text]
+            yield f"data: {final_text}\n\n"
             results = search_response.get("results", [])
 
             # Generate follow-up suggestions using the LLM based on RAG context
