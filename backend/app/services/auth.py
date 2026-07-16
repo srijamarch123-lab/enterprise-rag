@@ -115,13 +115,19 @@ def create_reset_token(user_id: int, db: Session) -> str:
 
 def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -> None:
     import os
-    is_render = os.environ.get("RENDER") == "true" or os.environ.get("RAILWAY_ENVIRONMENT") is not None
+    is_prod_cookie = (
+        os.environ.get("RENDER") == "true"
+        or os.environ.get("RAILWAY_ENVIRONMENT") is not None
+        or os.environ.get("RAILWAY_ENVIRONMENT_NAME") is not None
+        or os.environ.get("RAILWAY_PUBLIC_DOMAIN") is not None
+        or os.environ.get("RAILWAY_SERVICE_ID") is not None
+    )
     response.set_cookie(
         key=name,
         value=token,
         httponly=True,
-        secure=is_render,
-        samesite="none" if is_render else "lax",
+        secure=is_prod_cookie,
+        samesite="none" if is_prod_cookie else "lax",
         path="/",
         max_age=max_age,
     )
@@ -129,13 +135,20 @@ def set_jwt_cookie(response: Response, name: str, token: str, *, max_age: int) -
 
 def clear_jwt_cookie(response: Response, name: str) -> None:
     import os
-    is_render = os.environ.get("RENDER") == "true" or os.environ.get("RAILWAY_ENVIRONMENT") is not None
+    is_prod_cookie = (
+        os.environ.get("RENDER") == "true"
+        or os.environ.get("RAILWAY_ENVIRONMENT") is not None
+        or os.environ.get("RAILWAY_ENVIRONMENT_NAME") is not None
+        or os.environ.get("RAILWAY_PUBLIC_DOMAIN") is not None
+        or os.environ.get("RAILWAY_SERVICE_ID") is not None
+    )
     response.delete_cookie(
         key=name,
         path="/",
-        samesite="none" if is_render else "lax",
-        secure=is_render,
+        samesite="none" if is_prod_cookie else "lax",
+        secure=is_prod_cookie,
     )
+
 
 
 
