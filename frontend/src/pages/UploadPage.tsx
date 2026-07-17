@@ -2,7 +2,6 @@ import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Upload, X, CheckCircle } from 'lucide-react'
 import api from '../services/api'
-import { usePipeline } from '../hooks/usePipeline'
 
 export default function UploadPage() {
   const [files, setFiles] = useState<File[]>([])
@@ -10,7 +9,6 @@ export default function UploadPage() {
   const [uploading, setUploading] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
-  const { runPipeline } = usePipeline()
 
   const allowed = ['pdf', 'docx', 'pptx', 'txt']
 
@@ -36,8 +34,7 @@ export default function UploadPage() {
         .map((r: any) => ({ id: r.id, filename: r.filename }))
       setFiles([])
       if (imported.length > 0) {
-        navigate('/processing')
-        runPipeline(imported)
+        navigate('/processing', { state: { docs: imported } })
       }
     } catch (e: any) {
       alert(e.response?.data?.detail ?? 'Upload failed')

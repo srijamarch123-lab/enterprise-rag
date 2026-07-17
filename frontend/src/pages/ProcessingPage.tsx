@@ -1,5 +1,8 @@
 import { CheckCircle, XCircle, Loader, Clock, RefreshCw } from 'lucide-react'
 import { usePipeline, DocProgress } from '../hooks/usePipeline'
+import { useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
+import { getDocuments } from '../services/api'
 
 const statusIcon = (status: DocProgress['status']) => {
   if (status === 'done') return <CheckCircle size={15} color="#27500A" />
@@ -45,11 +48,58 @@ export default function ProcessingPage({ externalProgress, externalRunning, exte
   externalSummary?: { done: number; skipped: number; failed: number } | null
   externalRetry?: (docs: DocProgress[]) => void
 }) {
+  const location = useLocation()
   const internal = usePipeline()
   const progress = externalProgress ?? internal.progress
   const running = externalRunning ?? internal.running
   const summary = externalSummary ?? internal.summary
   const retry = externalRetry ?? internal.retry
+
+  const hasStarted = useRef(false)
+
+  useEffect(() => {
+    const stateDocs = location.state?.docs as { id: number; filename: string }[] | undefined
+    if (stateDocs && stateDocs.length > 0 && !hasStarted.current) {
+      hasStarted.current = true
+      internal.runPipeline(stateDocs)
+      window.history.replaceState({}, document.title)
+    } else if (!hasStarted.current) {
+      hasStarted.current = true
+      getDocuments()
+        .then((docs: any[]) => {
+          const nonEmbedded = docs.filter((d: any) => d.status !== 'embedded')
+          if (nonEmbedded.length > 0) {
+            const mapped: DocProgress[] = nonEmbedded.map((d: any) => {
+              let status: DocProgress['status'] = 'waiting'
+              if (d.status === 'failed') status = 'failed'
+              else if (d.status === 'extracting') status = 'extracting'
+              else if (d.status === 'extracted') status = 'chunking'
+              else if (d.status === 'chunking') status = 'chunking'
+              else if (d.status === 'chunked') status = 'embedding'
+              else if (d.status === 'embedding') status = 'embedding'
+              
+              return {
+                id: d.id,
+                filename: d.filename,
+                status,
+              }
+            })
+            internal.setProgress(mapped)
+            
+            const activeDocs = nonEmbedded
+              .filter((d: any) => d.status !== 'failed')
+              .map((d: any) => ({ id: d.id, filename: d.filename }))
+            
+            if (activeDocs.length > 0) {
+              internal.runPipeline(activeDocs)
+            }
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load processing documents:', err)
+        })
+    }
+  }, [location.state, internal])
 
   const failed = progress.filter(d => d.status === 'failed' || d.status === 'skipped')
   const failedOnly = progress.filter(d => d.status === 'failed')

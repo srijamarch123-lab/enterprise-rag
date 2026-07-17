@@ -22,38 +22,30 @@ export function usePipeline() {
     const initial: DocProgress[] = docIds.map(d => ({ ...d, status: 'waiting' }))
     setProgress(initial)
 
+    // Trigger backend processing for all pending files in the database
+    try {
+      await api.post('/process-all')
+    } catch (e) {
+      console.error('Failed to trigger backend process-all:', e)
+    }
+
     let done = 0, skipped = 0, failed = 0
 
     for (const doc of docIds) {
-      // Poll until extracted
-      update(doc.id, { status: 'extracting' })
       try {
-        await pollUntilExtracted(doc.id)
-      } catch (e: any) {
-        update(doc.id, { status: 'skipped', error: 'No text extracted — file may be corrupt or image-only' })
-        skipped++
-        continue
-      }
-
-      // Chunk
-      update(doc.id, { status: 'chunking' })
-      try {
-        await api.post(`/documents/${doc.id}/chunk`)
-      } catch (e: any) {
-        update(doc.id, { status: 'failed', error: e.response?.data?.detail ?? 'Chunking failed' })
-        failed++
-        continue
-      }
-
-      // Embed
-      update(doc.id, { status: 'embedding' })
-      try {
-        await api.post(`/documents/${doc.id}/embed`)
-        update(doc.id, { status: 'done' })
+        await pollUntilProcessed(doc.id, (status, error) => {
+          update(doc.id, { status, error })
+        })
         done++
       } catch (e: any) {
-        update(doc.id, { status: 'failed', error: e.response?.data?.detail ?? 'Embedding failed' })
-        failed++
+        const errorMsg = e.message ?? 'Processing failed'
+        if (errorMsg.toLowerCase().includes('no text')) {
+          update(doc.id, { status: 'skipped', error: errorMsg })
+          skipped++
+        } else {
+          update(doc.id, { status: 'failed', error: errorMsg })
+          failed++
+        }
       }
     }
 
@@ -68,18 +60,38 @@ export function usePipeline() {
     if (toRetry.length > 0) runPipeline(toRetry)
   }, [runPipeline])
 
-  return { progress, running, summary, runPipeline, retry }
+  return { progress, setProgress, running, summary, runPipeline, retry }
 }
 
-async function pollUntilExtracted(docId: number, maxAttempts = 30): Promise<void> {
+async function pollUntilProcessed(
+  docId: number,
+  onStatusUpdate: (status: DocProgress['status'], error?: string) => void
+): Promise<void> {
+  const maxAttempts = 120 // 4 minutes
   for (let i = 0; i < maxAttempts; i++) {
-    await sleep(2000)
     const { data } = await api.get(`/documents/${docId}`)
-    if (data.status === 'extracted') return
-    if (data.status === 'failed') throw new Error(data.extraction_error ?? 'Extraction failed')
-    if (data.status === 'embedded' || data.status === 'chunked') return
+    
+    let uiStatus: DocProgress['status'] = 'waiting'
+    if (data.status === 'extracting') {
+      uiStatus = 'extracting'
+    } else if (data.status === 'extracted') {
+      uiStatus = 'chunking'
+    } else if (data.status === 'chunked' || data.status === 'embedding') {
+      uiStatus = 'embedding'
+    } else if (data.status === 'embedded') {
+      uiStatus = 'done'
+      onStatusUpdate(uiStatus)
+      return
+    } else if (data.status === 'failed') {
+      uiStatus = 'failed'
+      onStatusUpdate(uiStatus, data.extraction_error ?? 'Processing failed')
+      throw new Error(data.extraction_error ?? 'Processing failed')
+    }
+    
+    onStatusUpdate(uiStatus)
+    await sleep(2000)
   }
-  throw new Error('Extraction timed out')
+  throw new Error('Processing timed out')
 }
 
 function sleep(ms: number) {

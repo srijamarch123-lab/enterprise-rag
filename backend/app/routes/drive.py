@@ -4,13 +4,14 @@ Returns document ID immediately so frontend can track pipeline progress.
 """
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Document
 from app.config.settings import get_settings
+from app.services.process_all import process_all_documents
 
 settings = get_settings()
 router = APIRouter(prefix="/api/drive", tags=["drive"])
@@ -90,7 +91,7 @@ def list_files(req: DriveRequest):
 
 
 @router.post("/import")
-def import_file(req: ImportRequest, db: Session = Depends(get_db)):
+def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Downloads file from Drive, saves to disk, creates DB record.
     Returns document ID immediately — frontend handles pipeline.
@@ -120,11 +121,12 @@ def import_file(req: ImportRequest, db: Session = Depends(get_db)):
     db.add(doc)
     db.commit()
     db.refresh(doc)
+    background_tasks.add_task(process_all_documents, db)
     return {"id": doc.id, "filename": req.file["name"], "skipped": False}
 
 
 @router.post("/import-all")
-def import_all(req: ImportAllRequest, db: Session = Depends(get_db)):
+def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     results = []
     for f in req.files:
         existing = db.query(Document).filter(
@@ -150,13 +152,7 @@ def import_all(req: ImportAllRequest, db: Session = Depends(get_db)):
             results.append({"id": doc.id, "filename": f["name"], "skipped": False})
         except Exception as e:
             results.append({"filename": f["name"], "error": str(e)})
-    # Auto-process all newly imported documents
-    try:
-        from app.services.process_all import process_all_documents
-        import threading
-        t = threading.Thread(target=process_all_documents, args=(db,))
-        t.daemon = True
-        t.start()
-    except Exception as e:
-        pass
+    
+    # Auto-process all newly imported documents via background task
+    background_tasks.add_task(process_all_documents, db)
     return results

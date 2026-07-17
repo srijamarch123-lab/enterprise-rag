@@ -58,6 +58,7 @@ export const getChunks = (docId: number) =>
 
 export const embedDocument = (id: number) => api.post(`/documents/${id}/embed`)
 export const embedAll = () => api.post('/embed/all')
+export const processAll = () => api.post('/process-all').then((r) => r.data)
 export const getEmbeddingStatus = (id: number) =>
   api.get(`/documents/${id}/embedding-status`).then((r) => r.data)
 export const getQdrantStats = () => api.get('/qdrant/stats').then((r) => r.data)

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HardDrive, Download, DownloadCloud, CheckCircle, Plus, X } from 'lucide-react'
 import api from '../services/api'
-import { usePipeline } from '../hooks/usePipeline'
 
 type Drive = {
   id: string
@@ -15,7 +14,6 @@ type Drive = {
 
 export default function DrivePage() {
   const navigate = useNavigate()
-  const { runPipeline } = usePipeline()
   const [drives, setDrives] = useState<Drive[]>([{ id: '1', label: 'Drive 1', credentials: {}, folderId: '', files: [], connected: false }])
   const [activeId, setActiveId] = useState('1')
   const [loading, setLoading] = useState(false)
@@ -85,7 +83,6 @@ export default function DrivePage() {
     }
     if (imported.length > 0) {
       navigate('/processing', { state: { docs: imported } })
-      runPipeline(imported)
     }
   }
 
