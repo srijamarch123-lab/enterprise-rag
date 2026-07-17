@@ -21,6 +21,65 @@ def _should_extract(doc: Document) -> bool:
     )
 
 
+def ensure_file_exists(doc: Document, db: Session):
+    import os
+    from pathlib import Path
+    
+    # Standardize path for operating system
+    normalized_path = os.path.normpath(doc.file_path)
+    
+    if os.path.exists(normalized_path):
+        return
+
+    if doc.source == "drive" and doc.drive_file_id:
+        try:
+            from app.config.settings import get_settings
+            from google.oauth2 import service_account
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaIoBaseDownload
+            import io
+            import json
+
+            settings = get_settings()
+            creds_path = settings.google_credentials_path
+            
+            if not os.path.exists(creds_path):
+                fallback = Path(__file__).parent.parent.parent / creds_path
+                if fallback.exists():
+                    creds_path = str(fallback)
+                else:
+                    raise FileNotFoundError(f"Google credentials file not found at {creds_path}")
+
+            with open(creds_path, "r", encoding="utf-8") as f:
+                creds_json = json.load(f)
+
+            SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+            creds = service_account.Credentials.from_service_account_info(creds_json, scopes=SCOPES)
+            service = build("drive", "v3", credentials=creds)
+
+            os.makedirs(os.path.dirname(normalized_path), exist_ok=True)
+
+            request = service.files().get_media(fileId=doc.drive_file_id)
+            buf = io.BytesIO()
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            
+            Path(normalized_path).write_bytes(buf.getvalue())
+            doc.file_size = len(buf.getvalue())
+            doc.file_path = normalized_path
+            db.commit()
+
+        except Exception as e:
+            raise FileNotFoundError(
+                f"File not found on disk, and Google Drive auto-redownload failed: {e}. "
+                f"Expected file path: {normalized_path}"
+            )
+    else:
+        raise FileNotFoundError(f"File not found on disk: {normalized_path} (Manual upload file cannot be redownloaded)")
+
+
 def process_all_documents(db: Session) -> dict:
     """End-to-end processing for all stored documents.
 
@@ -52,6 +111,8 @@ def process_all_documents(db: Session) -> dict:
                 doc.status = DocumentStatus.extracting
                 doc.extraction_error = None
                 db.commit()
+
+                ensure_file_exists(doc, db)
 
                 text, pages = extract_text(doc.file_path, doc.file_type)
                 doc.extracted_text = text
