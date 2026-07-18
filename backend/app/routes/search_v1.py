@@ -93,23 +93,62 @@ class SearchRequest(BaseModel):
     offset: int = 0
     department: Optional[str] = None
     keyword_backend: Optional[str] = None
+    file_type: Optional[str] = None
+    date_range: Optional[str] = None
 
 
 ChatRequest = SearchRequest
 
 
-def _make_filter(role: str, department: Optional[str]) -> Filter:
+def _make_filter(
+    role: str,
+    department: Optional[str],
+    file_type: Optional[str] = None,
+    date_range: Optional[str] = None,
+) -> Filter:
     base = build_rbac_filter(role)
+    from qdrant_client.models import FieldCondition, MatchValue, Range
+    import datetime
+
+    if not base.must:
+        base.must = []
 
     if department:
-        from qdrant_client.models import FieldCondition, MatchValue
-
         base.must.append(
             FieldCondition(
                 key="department",
                 match=MatchValue(value=department),
             )
         )
+
+    if file_type:
+        base.must.append(
+            FieldCondition(
+                key="file_type",
+                match=MatchValue(value=file_type.lower().strip()),
+            )
+        )
+
+    if date_range:
+        now = datetime.datetime.utcnow()
+        delta = None
+        if date_range == "today":
+            delta = datetime.timedelta(days=1)
+        elif date_range == "week":
+            delta = datetime.timedelta(days=7)
+        elif date_range == "month":
+            delta = datetime.timedelta(days=30)
+        elif date_range == "year":
+            delta = datetime.timedelta(days=365)
+
+        if delta:
+            start_time = (now - delta).isoformat()
+            base.must.append(
+                FieldCondition(
+                    key="created_at",
+                    range=Range(gte=start_time),
+                )
+            )
 
     return base
 
@@ -417,7 +456,7 @@ def search(
         # Query Expansion
         expanded_queries = expand_query(req.query)
 
-        query_filter = _make_filter(str(current_user.role), req.department)
+        query_filter = _make_filter(str(current_user.role), req.department, req.file_type, req.date_range)
         top_k = req.limit
 
         semantic_hits: list[Any] = []

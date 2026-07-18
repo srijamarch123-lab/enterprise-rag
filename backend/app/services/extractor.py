@@ -41,6 +41,12 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
         return _extract_txt(path)
     if ext in ["png", "jpg", "jpeg"]:
         return _extract_image(path)
+    if ext == "csv":
+        return _extract_csv(path)
+    if ext in ["xlsx", "xls"]:
+        return _extract_xlsx(path)
+    if ext in ["md", "markdown"]:
+        return _extract_markdown(path)
 
     raise ValueError(f"Unsupported file type: {ext}")
 
@@ -133,6 +139,8 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
     full_text = "\n".join(page_texts)
     cleaned = _clean(full_text)
     if not cleaned:
+        if pages_needing_ocr and errors:
+            raise ValueError(f"PDF extraction produced empty text. OCR Errors: {'; '.join(errors)}")
         raise ValueError("PDF extraction produced empty text (native+OCR)")
     return cleaned, page_count
 
@@ -238,4 +246,36 @@ def _clean(text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = re.sub(r"[ \t]+", " ", text)
     return text.strip()
+
+
+def _extract_csv(path: Path) -> tuple[str, None]:
+    import csv
+    rows = []
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if row:
+                rows.append(" | ".join([cell.replace("\n", " ").strip() for cell in row]))
+    return _clean("\n".join(rows)), None
+
+
+def _extract_xlsx(path: Path) -> tuple[str, None]:
+    import pandas as pd
+    sheets_text = []
+    xls = pd.read_excel(path, sheet_name=None)
+    for sheet_name, df in xls.items():
+        sheets_text.append(f"--- Sheet: {sheet_name} ---")
+        df = df.fillna("")
+        headers = " | ".join([str(col).strip() for col in df.columns])
+        sheets_text.append(headers)
+        sheets_text.append("-|-".join(["---" for _ in df.columns]))
+        for _, row in df.iterrows():
+            row_str = " | ".join([str(cell).replace("\n", " ").strip() for cell in row])
+            sheets_text.append(row_str)
+    return _clean("\n".join(sheets_text)), None
+
+
+def _extract_markdown(path: Path) -> tuple[str, None]:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    return _clean(text), None
 

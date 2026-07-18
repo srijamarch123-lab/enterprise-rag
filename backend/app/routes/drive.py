@@ -23,6 +23,14 @@ SUPPORTED_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
     "text/plain": "txt",
+    "image/png": "png",
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpg",
+    "text/csv": "csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-excel": "xls",
+    "text/markdown": "md",
+    "text/x-markdown": "md",
 }
 
 

@@ -25,6 +25,9 @@ class SendMessageRequest(BaseModel):
     content: str
     session_context: str | None = None
     session_doc_name: str | None = None
+    department: str | None = None
+    file_type: str | None = None
+    date_range: str | None = None
 
 
 @router.post("/sessions", status_code=201)
@@ -166,7 +169,13 @@ def stream_chat(
         for message in session.messages
     ]
 
-    search_request = ChatRequest(query=req.content, limit=5)
+    search_request = ChatRequest(
+        query=req.content,
+        limit=5,
+        department=req.department,
+        file_type=req.file_type,
+        date_range=req.date_range,
+    )
     search_response = search(search_request, current_user=current_user, db=db)
     chunks = search_response.get("results", [])
 

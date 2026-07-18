@@ -83,7 +83,10 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plusRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
-  const [previewSource, setPreviewSource] = useState<SearchResult | null>(null)
+  // Filters
+  const [filterDept, setFilterDept] = useState('')
+  const [filterFileType, setFilterFileType] = useState('')
+  const [filterDateRange, setFilterDateRange] = useState('')
 
   // Plus menu
   const [showPlus, setShowPlus] = useState(false)
@@ -217,7 +220,14 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         signal: controller.signal,
-        body: JSON.stringify({ content: query, session_context: sessionDoc ? `The user has uploaded a document called "${sessionDoc.filename}". Use this as additional context:\n\n${sessionDoc.text}` : undefined, session_doc_name: sessionDoc?.filename }),
+        body: JSON.stringify({
+          content: query,
+          session_context: sessionDoc ? `The user has uploaded a document called "${sessionDoc.filename}". Use this as additional context:\n\n${sessionDoc.text}` : undefined,
+          session_doc_name: sessionDoc?.filename,
+          department: filterDept || undefined,
+          file_type: filterFileType || undefined,
+          date_range: filterDateRange || undefined,
+        }),
       })
       const reader = response.body?.getReader()
       if (!reader) throw new Error('Streaming not available')
@@ -372,6 +382,85 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
             <Plus size={16} strokeWidth={2.25} />
             New chat
           </button>
+        </div>
+
+        <div style={{ padding: '0 16px 16px', borderBottom: `1px solid ${color.border}` }}>
+          <div style={{ fontSize: '11px', fontWeight: 600, color: '#5a8a6a', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filters</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '10px', color: '#888780', marginBottom: '3px' }}>Department</label>
+              <input
+                type="text"
+                placeholder="e.g. HR, Finance"
+                value={filterDept}
+                onChange={(e) => setFilterDept(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '5px 8px',
+                  fontSize: '12px',
+                  borderRadius: '5px',
+                  border: `1px solid ${color.border}`,
+                  background: '#fcfbf9',
+                  color: '#1a3d2a',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '10px', color: '#888780', marginBottom: '3px' }}>File Type</label>
+              <select
+                value={filterFileType}
+                onChange={(e) => setFilterFileType(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '5px 8px',
+                  fontSize: '12px',
+                  borderRadius: '5px',
+                  border: `1px solid ${color.border}`,
+                  background: '#fcfbf9',
+                  color: '#1a3d2a',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <option value="">All Formats</option>
+                <option value="pdf">PDF Document</option>
+                <option value="docx">Word (DOCX)</option>
+                <option value="pptx">PowerPoint</option>
+                <option value="txt">Text File</option>
+                <option value="png">PNG Image</option>
+                <option value="jpg">JPG Image</option>
+                <option value="csv">CSV Spreadsheet</option>
+                <option value="xlsx">Excel (XLSX)</option>
+                <option value="md">Markdown</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '10px', color: '#888780', marginBottom: '3px' }}>Upload Date</label>
+              <select
+                value={filterDateRange}
+                onChange={(e) => setFilterDateRange(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '5px 8px',
+                  fontSize: '12px',
+                  borderRadius: '5px',
+                  border: `1px solid ${color.border}`,
+                  background: '#fcfbf9',
+                  color: '#1a3d2a',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              >
+                <option value="">All Time</option>
+                <option value="today">Past 24 Hours</option>
+                <option value="week">Past Week</option>
+                <option value="month">Past Month</option>
+                <option value="year">Past Year</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div className="chat-page-sidebar-list">
@@ -641,7 +730,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         </div>
       )}
 
-      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg" style={{ display: 'none' }} onChange={handleFileUpload} />
+      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.csv,.xlsx,.xls,.md" style={{ display: 'none' }} onChange={handleFileUpload} />
     </div>
   )
 }

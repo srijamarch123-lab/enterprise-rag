@@ -105,6 +105,7 @@ def embed_document(document: Document, db: Session) -> dict:
                     "file_type": document.file_type,
                     "text_preview": chunk.text[:200],
                     "parent_text": chunk.parent_text,
+                    "created_at": (chunk.created_at or __import__("datetime").datetime.utcnow()).isoformat(),
                 },
             )
             points.append(point)
@@ -145,6 +146,7 @@ def embed_document(document: Document, db: Session) -> dict:
                         "file_type": document.file_type,
                         "text_preview": chunk.text[:200],
                         "parent_text": chunk.parent_text,
+                        "created_at": (chunk.created_at or __import__("datetime").datetime.utcnow()).isoformat(),
                     },
                 )
 
@@ -225,9 +227,29 @@ def embed_all_documents(db: Session) -> dict:
 
 def reprocess_document(document_id: int, db: Session) -> dict:
     from app.services.chunker import chunk_document
+    from app.services.extractor import extract_text
+    from app.services.process_all import ensure_file_exists
+    import datetime
+
     doc = db.query(Document).filter(Document.id == document_id).first()
     if not doc:
         raise ValueError(f"Document {document_id} not found")
+
+    doc.status = DocumentStatus.extracting
+    doc.extraction_error = None
+    db.commit()
+
+    # Make sure file is present (or auto-downloaded if Drive doc)
+    ensure_file_exists(doc, db)
+
+    # Perform text extraction (OCR is executed for scanned documents)
+    text, pages = extract_text(doc.file_path, doc.file_type)
+    doc.extracted_text = text
+    doc.page_count = pages
+    doc.status = DocumentStatus.extracted
+    doc.processed_at = datetime.datetime.utcnow()
+    db.commit()
+
     qdrant_client = _get_qdrant()
     chunks = db.query(Chunk).filter(Chunk.document_id == document_id).all()
     point_ids = [c.qdrant_point_id for c in chunks if c.qdrant_point_id]
@@ -236,7 +258,11 @@ def reprocess_document(document_id: int, db: Session) -> dict:
             collection_name=settings.qdrant_collection_name,
             points_selector=point_ids,
         )
+
+    # Perform chunking and database persistence
     chunk_document(doc, db)
+
+    # Perform embedding generation and Qdrant upsert
     return embed_document(doc, db)
 
 def get_qdrant_stats() -> dict:

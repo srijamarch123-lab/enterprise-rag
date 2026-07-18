@@ -49,3 +49,15 @@ def init_db():
                 conn.commit()
     except Exception:
         pass
+
+    # Check if users table has department column, if not add it dynamically
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        user_columns = [c["name"] for c in inspector.get_columns("users")]
+        if "department" not in user_columns:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN department VARCHAR(100)"))
+                conn.commit()
+    except Exception:
+        pass

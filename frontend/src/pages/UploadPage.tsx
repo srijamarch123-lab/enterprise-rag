@@ -10,7 +10,7 @@ export default function UploadPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
-  const allowed = ['pdf', 'docx', 'pptx', 'txt', 'png', 'jpg', 'jpeg']
+  const allowed = ['pdf', 'docx', 'pptx', 'txt', 'png', 'jpg', 'jpeg', 'csv', 'xlsx', 'xls', 'md']
 
   const addFiles = (incoming: FileList | null) => {
     if (!incoming) return
@@ -71,8 +71,8 @@ export default function UploadPage() {
         <div style={{ fontSize: '14px', fontWeight: '500', color: '#1a3d2a', marginBottom: '4px' }}>
           Drop files here or click to browse
         </div>
-        <div style={{ fontSize: '12px', color: '#5a8a6a' }}>PDF, DOCX, PPTX, TXT, PNG, JPG, JPEG</div>
-        <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg" style={{ display: 'none' }} onChange={e => addFiles(e.target.files)} />
+        <div style={{ fontSize: '12px', color: '#5a8a6a' }}>PDF, DOCX, PPTX, TXT, PNG, JPG, JPEG, CSV, XLSX, XLS, MD</div>
+        <input ref={inputRef} type="file" multiple accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg,.csv,.xlsx,.xls,.md" style={{ display: 'none' }} onChange={e => addFiles(e.target.files)} />
       </div>
 
       {/* Department */}

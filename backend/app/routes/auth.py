@@ -252,6 +252,7 @@ def me(current_user: User = Depends(get_current_user)):
         "email": current_user.email,
         "full_name": current_user.full_name,
         "role": current_user.role,
+        "department": current_user.department,
         "last_login": current_user.last_login,
     }
 

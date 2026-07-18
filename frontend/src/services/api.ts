@@ -62,7 +62,7 @@ export const processAll = () => api.post('/process-all').then((r) => r.data)
 export const getEmbeddingStatus = (id: number) =>
   api.get(`/documents/${id}/embedding-status`).then((r) => r.data)
 export const getQdrantStats = () => api.get('/qdrant/stats').then((r) => r.data)
-export const reprocessDocument = (id: number) => api.post(`/documents/${id}/reprocess`)
+export const reprocessDocument = (id: number) => api.post(`/embeddings/documents/${id}/reprocess`)
 
 export const register = (email: string, password: string, full_name: string) =>
   api.post('/auth/register', { email, password, full_name }).then((r) => r.data)
@@ -76,8 +76,8 @@ export const getMe = () => api.get('/auth/me').then((r) => r.data)
 export const getUsers = () => api.get('/admin/users').then((r) => r.data)
 export const getStats = () => api.get("/admin/stats").then((r) => r.data)
 export const getLoginActivity = () => api.get("/admin/login-activity").then((r) => r.data)
-export const updateRole = (userId: number, role: string) =>
-  api.put('/admin/users/role', { user_id: userId, role })
+export const updateRole = (userId: number, role: string, department?: string) =>
+  api.put('/admin/users/role', { user_id: userId, role, department })
 export const disableUser = (userId: number) => api.put(`/admin/users/${userId}/disable`)
 export const enableUser = (userId: number) => api.put(`/admin/users/${userId}/enable`)
 export const promoteToAdmin = (email: string) =>

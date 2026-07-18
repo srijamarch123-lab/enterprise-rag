@@ -20,8 +20,8 @@ from app.config.settings import get_settings
 from app.services.extractor import extract_text
 from app.services.chunker import chunk_document
 from app.dependencies.rbac import require_manager_or_above, require_admin
-from app.services.audit import log_action
 from app.services.limiter import limiter
+from app.services.auth import get_current_user
 
 settings = get_settings()
 
@@ -232,3 +232,51 @@ def delete_document(doc_id: int, db: Session = Depends(get_db)):
         os.remove(file_path)
     db.delete(doc)
     db.commit()
+
+
+
+@router.get("/documents/{doc_id}/download")
+def secure_download(
+    doc_id: int,
+    current_user: "User" = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from fastapi.responses import FileResponse
+    from app.models import User, AccessLevel
+
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Access control checks
+    role = str(current_user.role).strip().lower()
+    
+    # 1. Access Level constraints
+    if doc.access_level == AccessLevel.confidential:
+        if role not in ("admin", "hr", "manager"):
+            raise HTTPException(status_code=403, detail="Forbidden: Confidential document")
+    elif doc.access_level == AccessLevel.restricted:
+        if role not in ("admin", "hr") and doc.owner_user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden: Restricted document")
+            
+    # 2. Department constraints (non-admin/non-hr users must match department if doc is department-restricted)
+    if doc.department and role not in ("admin", "hr"):
+        user_dept = (current_user.department or "").strip().lower()
+        doc_dept = doc.department.strip().lower()
+        if user_dept != doc_dept:
+            raise HTTPException(status_code=403, detail=f"Forbidden: Document is restricted to {doc.department} department")
+
+    # Resolve file path
+    file_path = doc.file_path
+    if not os.path.isabs(file_path):
+        backend_dir = Path(__file__).parent.parent.parent.resolve()
+        file_path = str((backend_dir / file_path).resolve())
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return FileResponse(
+        file_path,
+        media_type="application/octet-stream",
+        filename=doc.original_filename
+    )

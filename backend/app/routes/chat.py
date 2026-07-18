@@ -35,9 +35,17 @@ class ChatRequest(BaseModel):
     department: Optional[str] = None
     keyword_backend: Optional[str] = None
     stream: bool = False
+    file_type: Optional[str] = None
+    date_range: Optional[str] = None
 
 
-def _make_chat_filter(role: str, user_id: int, department: Optional[str]):
+def _make_chat_filter(
+    role: str,
+    user_id: int,
+    department: Optional[str],
+    file_type: Optional[str] = None,
+    date_range: Optional[str] = None,
+):
     """Same as the org RBAC filter, but OR'd with an exact owner_id match
     so a user's own personal uploads are also searchable in their chat -
     without making them visible to anyone else, including admins."""
@@ -45,9 +53,38 @@ def _make_chat_filter(role: str, user_id: int, department: Optional[str]):
     base.should.append(
         FieldCondition(key="owner_id", match=MatchValue(value=user_id))
     )
+    if not base.must:
+        base.must = []
+
     if department:
-        base.must = base.must or []
         base.must.append(FieldCondition(key="department", match=MatchValue(value=department)))
+
+    if file_type:
+        base.must.append(FieldCondition(key="file_type", match=MatchValue(value=file_type.lower().strip())))
+
+    if date_range:
+        import datetime
+        from qdrant_client.models import Range
+        now = datetime.datetime.utcnow()
+        delta = None
+        if date_range == "today":
+            delta = datetime.timedelta(days=1)
+        elif date_range == "week":
+            delta = datetime.timedelta(days=7)
+        elif date_range == "month":
+            delta = datetime.timedelta(days=30)
+        elif date_range == "year":
+            delta = datetime.timedelta(days=365)
+
+        if delta:
+            start_time = (now - delta).isoformat()
+            base.must.append(
+                FieldCondition(
+                    key="created_at",
+                    range=Range(gte=start_time),
+                )
+            )
+
     return base
 
 
@@ -76,7 +113,7 @@ def chat(
         if not query_vector:
             raise HTTPException(status_code=400, detail="Empty query vector")
 
-        query_filter = _make_chat_filter(str(current_user.role), current_user.id, req.department)
+        query_filter = _make_chat_filter(str(current_user.role), current_user.id, req.department, req.file_type, req.date_range)
         client = _get_qdrant()
         top_k = req.limit
 

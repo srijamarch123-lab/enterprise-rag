@@ -156,6 +156,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(Enum(UserRole), default=UserRole.employee)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     token_version: Mapped[int] = mapped_column(Integer, default=0)  # for forced logout
+    department: Mapped[str | None] = mapped_column(String(100))
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime)

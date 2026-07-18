@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 class RoleUpdateRequest(BaseModel):
     user_id: int
     role: UserRole
+    department: str | None = None
 
 
 @router.get("/users", dependencies=[Depends(require_admin)])
@@ -61,6 +62,7 @@ def list_users(db: Session = Depends(get_db)):
             "full_name": u.full_name,
             "role": u.role,
             "is_active": u.is_active,
+            "department": u.department,
             "created_at": u.created_at.isoformat() if u.created_at else None,
             "last_login": u.last_login.isoformat() if u.last_login else None,
             "last_login_ip": user_last_login_ip.get(u.id),
@@ -82,8 +84,8 @@ def update_role(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-
     user.role = body.role
+    user.department = body.department
     user.token_version += 1  # invalidate existing tokens
     db.commit()
 
@@ -92,10 +94,10 @@ def update_role(
         action="role_change",
         user_id=user.id,
         ip_address=request.client.host if request.client else None,
-        details={"role": str(body.role)},
+        details={"role": str(body.role), "department": body.department},
     )
 
-    return {"message": f"Role updated to {body.role} for user {user.email}"}
+    return {"message": f"User updated: role {body.role}, department {body.department} for user {user.email}"}
 
 
 

@@ -32,7 +32,7 @@ export default function UsersPage() {
   console.log("loginActivity:", loginActivity, "error:", loginError)
 
   const roleMut = useMutation({
-    mutationFn: ({ id, role }: { id: number; role: string }) => updateRole(id, role),
+    mutationFn: ({ id, role, department }: { id: number; role: string; department?: string }) => updateRole(id, role, department),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
   })
 
@@ -202,6 +202,7 @@ export default function UsersPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Email</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Name</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Role</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Department</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Created</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Last Login</th>
@@ -220,7 +221,7 @@ export default function UsersPage() {
                     <td className="px-4 py-3">
                       <select
                         value={u.role}
-                        onChange={(e) => roleMut.mutate({ id: u.id, role: e.target.value })}
+                        onChange={(e) => roleMut.mutate({ id: u.id, role: e.target.value, department: u.department })}
                         disabled={!u.is_active}
                         className="border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                       >
@@ -228,6 +229,16 @@ export default function UsersPage() {
                           <option key={r} value={r}>{r}</option>
                         ))}
                       </select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="text"
+                        defaultValue={u.department ?? ""}
+                        onBlur={(e) => roleMut.mutate({ id: u.id, role: u.role, department: e.target.value })}
+                        disabled={!u.is_active}
+                        placeholder="e.g. HR, Finance"
+                        className="border border-gray-200 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-indigo-500 focus:outline-none w-24"
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded ${u.is_active ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>

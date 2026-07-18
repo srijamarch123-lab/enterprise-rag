@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { getDocuments, deleteDocument } from '../services/api'
+import { getDocuments, deleteDocument, reprocessDocument } from '../services/api'
 import StatusBadge from '../components/StatusBadge'
 
 export default function DocumentsPage() {
@@ -16,6 +16,11 @@ export default function DocumentsPage() {
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteDocument(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents'] }),
+  })
+
+  const reprocessMut = useMutation({
+    mutationFn: (id: number) => reprocessDocument(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['documents'] }),
   })
 
@@ -100,7 +105,16 @@ export default function DocumentsPage() {
                 >
                   <td style={{ padding: '10px 14px', color: '#1a3d2a', fontWeight: '500', maxWidth: '220px' }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={doc.filename}>
-                      {doc.filename}
+                      <a
+                        href={`${import.meta.env.VITE_API_URL || ''}/api/documents/${doc.id}/download`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: '#1a3d2a', textDecoration: 'none', cursor: 'pointer' }}
+                        onMouseOver={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                        onMouseOut={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                      >
+                        {doc.filename}
+                      </a>
                     </div>
                     {doc.status === 'failed' && doc.extraction_error && (
                       <div style={{
@@ -124,9 +138,18 @@ export default function DocumentsPage() {
                   <td style={{ padding: '10px 14px', color: '#888780', fontSize: '11px' }}>
                     {new Date(doc.uploaded_at).toLocaleDateString()}
                   </td>
-                  <td style={{ padding: '10px 14px' }}>
+                  <td style={{ padding: '10px 14px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button
+                      onClick={() => reprocessMut.mutate(doc.id)}
+                      title="Reprocess Document"
+                      disabled={reprocessMut.isPending}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: '5px', display: 'flex', alignItems: 'center' }}
+                    >
+                      <RefreshCw size={13} color={reprocessMut.isPending ? "#a0c0b0" : "#5a8a6a"} />
+                    </button>
                     <button
                       onClick={() => deleteMut.mutate(doc.id)}
+                      title="Delete Document"
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: '5px', display: 'flex', alignItems: 'center' }}
                     >
                       <Trash2 size={13} color="#c8776a" />
