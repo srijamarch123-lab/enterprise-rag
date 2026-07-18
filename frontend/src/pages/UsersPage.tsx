@@ -1,13 +1,33 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Shield, UserX, UserCheck, Search, Users, LogIn, AlertTriangle, Clock } from "lucide-react"
-import { getUsers, getStats, getLoginActivity, updateRole, disableUser, enableUser } from "../services/api"
+import { Shield, UserX, UserCheck, Search, Users, LogIn, AlertTriangle, Clock, Eye, ClipboardList } from "lucide-react"
+import api, { getUsers, getStats, getLoginActivity, updateRole, disableUser, enableUser } from "../services/api"
 import { useState } from "react"
+import { User } from "../types"
 
 const ROLES = ["admin", "hr", "manager", "employee"]
+
+const ACTION_COLORS: Record<string, { bg: string; color: string }> = {
+  login:          { bg: '#e8f5ee', color: '#1a5c2e' },
+  logout:         { bg: '#f0f0f0', color: '#555' },
+  role_change:    { bg: '#fff3cd', color: '#856404' },
+  disable_user:   { bg: '#fee', color: '#c00' },
+  enable_user:    { bg: '#e8f5ee', color: '#1a5c2e' },
+  force_logout:   { bg: '#fde8e8', color: '#a00' },
+  password_reset: { bg: '#e8f0fe', color: '#1a56c2' },
+  upload:         { bg: '#e0f2fe', color: '#0369a1' },
+  search:         { bg: '#fae8ff', color: '#a21caf' },
+  submit_feedback: { bg: '#fef3c7', color: '#d97706' },
+}
 
 export default function UsersPage() {
   const qc = useQueryClient()
   const [search, setSearch] = useState("")
+  const [activeTab, setActiveTab] = useState<'users' | 'logs'>('users')
+  const [selectedLog, setSelectedLog] = useState<any | null>(null)
+  const [logPage, setLogPage] = useState(0)
+  const [logFilterAction, setLogFilterAction] = useState('')
+  const [logSearchUser, setLogSearchUser] = useState('')
+  const logLimit = 15
 
   const { data: stats } = useQuery({
     queryKey: ["stats"],
@@ -15,10 +35,20 @@ export default function UsersPage() {
     refetchInterval: 30000,
   })
 
-  const { data: users = [], isLoading } = useQuery({
+  const { data: users = [] as User[], isLoading } = useQuery<User[]>({
     queryKey: ["users"],
     queryFn: getUsers,
     refetchInterval: 30000,
+  })
+
+  const { data: auditLogs = [], isLoading: logsLoading } = useQuery({
+    queryKey: ["auditLogs", logPage, logFilterAction],
+    queryFn: async () => {
+      const actionParam = logFilterAction ? `&action=${logFilterAction}` : ''
+      const res = await api.get(`/admin/audit-logs?skip=${logPage * logLimit}&limit=${logLimit}${actionParam}`)
+      return res.data
+    },
+    enabled: activeTab === 'logs',
   })
 
 
@@ -32,7 +62,7 @@ export default function UsersPage() {
   console.log("loginActivity:", loginActivity, "error:", loginError)
 
   const roleMut = useMutation({
-    mutationFn: ({ id, role, department }: { id: number; role: string; department?: string }) => updateRole(id, role, department),
+    mutationFn: ({ id, role, department }: { id: number; role: string; department?: string | null }) => updateRole(id, role, department ?? undefined),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["users"] }),
   })
 
@@ -53,9 +83,15 @@ export default function UsersPage() {
   })
 
   const filteredUsers = users.filter(
-    (u: any) =>
+    (u: User) =>
       !search || u.email.toLowerCase().includes(search.toLowerCase())
   )
+
+  const filteredLogs = auditLogs.filter((log: any) => {
+    if (!logSearchUser) return true
+    const email = log.user_email || ''
+    return email.toLowerCase().includes(logSearchUser.toLowerCase())
+  })
 
 
   return (
@@ -113,7 +149,25 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* Recent Login Activity */}
+      {/* Sub-tabs */}
+      <div className="flex gap-4 border-b border-gray-200 mb-6">
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`pb-2 text-sm font-semibold border-b-2 transition-all ${activeTab === 'users' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          Users & Login Activity
+        </button>
+        <button
+          onClick={() => setActiveTab('logs')}
+          className={`pb-2 text-sm font-semibold border-b-2 transition-all ${activeTab === 'logs' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          Detailed Activity Logs
+        </button>
+      </div>
+
+      {activeTab === 'users' && (
+        <>
+          {/* Recent Login Activity */}
       {loginLoading ? (
         <p className="text-gray-400 mb-4">Loading activity...</p>
       ) : (
@@ -214,7 +268,7 @@ export default function UsersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredUsers.map((u: any) => (
+                {filteredUsers.map((u: User) => (
                   <tr key={u.id} className={`hover:bg-gray-50 ${!u.is_active ? "opacity-50" : ""}`}>
                     <td className="px-4 py-3 font-medium text-gray-800">{u.email}</td>
                     <td className="px-4 py-3 text-gray-600">{u.full_name ?? "-"}</td>
@@ -291,6 +345,154 @@ export default function UsersPage() {
           </div>
         </div>
       )}
-    </div>
-  )
+    </>
+  )}
+
+    {/* Detailed Activity Logs Tab */}
+    {activeTab === 'logs' && (
+      <div>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <ClipboardList className="text-indigo-600" size={24} />
+            <h1 className="text-2xl font-bold text-gray-900">Activity Logs</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Search user email */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                placeholder="Filter by user email..."
+                value={logSearchUser}
+                onChange={(e) => setLogSearchUser(e.target.value)}
+                className="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none w-64 bg-white text-gray-950"
+              />
+            </div>
+            {/* Action Filter */}
+            <select
+              value={logFilterAction}
+              onChange={(e) => {
+                setLogFilterAction(e.target.value)
+                setLogPage(0)
+              }}
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white text-gray-950"
+            >
+              <option value="">All actions</option>
+              <option value="login">login</option>
+              <option value="login_failed">login_failed</option>
+              <option value="logout">logout</option>
+              <option value="upload">upload</option>
+              <option value="search">search</option>
+              <option value="role_change">role_change</option>
+              <option value="disable_user">disable_user</option>
+              <option value="enable_user">enable_user</option>
+              <option value="submit_feedback">submit_feedback</option>
+            </select>
+          </div>
+        </div>
+
+        {logsLoading ? (
+          <p className="text-gray-400">Loading audit logs...</p>
+        ) : filteredLogs.length === 0 ? (
+          <p className="text-gray-400">No logs found matching your criteria.</p>
+        ) : (
+          <>
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Timestamp</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">User Email</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Action</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">IP Address</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Resource</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredLogs.map((log: any) => {
+                      const colors = ACTION_COLORS[log.action] || { bg: '#f3f4f6', color: '#374151' }
+                      return (
+                        <tr key={log.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-500 text-xs">
+                            {log.timestamp ? new Date(log.timestamp).toLocaleString() : "-"}
+                          </td>
+                          <td className="px-4 py-3 text-gray-800 font-medium">{log.user_email || "System"}</td>
+                          <td className="px-4 py-3">
+                            <span
+                              style={{ backgroundColor: colors.bg, color: colors.color }}
+                              className="text-xs px-2 py-0.5 rounded-full font-medium"
+                            >
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 text-xs font-mono">{log.ip_address || "—"}</td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">
+                            {log.resource_type ? `${log.resource_type} (${log.resource_id})` : "—"}
+                          </td>
+                          <td className="px-4 py-3">
+                            {log.details ? (
+                              <button
+                                onClick={() => setSelectedLog(log)}
+                                className="text-indigo-600 hover:text-indigo-900 text-xs font-semibold flex items-center gap-1"
+                              >
+                                <Eye size={13} /> View Details
+                              </button>
+                            ) : "—"}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Pagination */}
+            <div className="flex gap-3 mt-4 items-center">
+              <button
+                onClick={() => setLogPage(p => p - 1)}
+                disabled={logPage === 0}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm bg-white font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Previous
+              </button>
+              <span className="text-sm text-gray-500">
+                Page {logPage + 1}
+              </span>
+              <button
+                onClick={() => setLogPage(p => p + 1)}
+                disabled={auditLogs.length < logLimit}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm bg-white font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    )}
+
+    {/* Selected Log details inspection modal */}
+    {selectedLog && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="bg-white rounded-xl max-w-lg w-full p-6 relative">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Log Details</h3>
+          <div className="bg-gray-50 rounded-lg p-4 font-mono text-xs overflow-auto max-h-96">
+            <pre className="whitespace-pre-wrap">{JSON.stringify(selectedLog.details, null, 2)}</pre>
+          </div>
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={() => setSelectedLog(null)}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-all"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </div>
+)
 }

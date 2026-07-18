@@ -32,9 +32,18 @@ class LocalRedisFallback:
             _local_store[key] = (expire_at, value)
             return True
 
-    def delete(self, key: str) -> int:
+    def delete(self, *keys: str) -> int:
         with _local_lock:
-            return 1 if _local_store.pop(key, None) is not None else 0
+            count = 0
+            for key in keys:
+                if _local_store.pop(key, None) is not None:
+                    count += 1
+            return count
+
+    def keys(self, pattern: str) -> list[str]:
+        with _local_lock:
+            prefix = pattern.replace("*", "")
+            return [k for k in _local_store.keys() if k.startswith(prefix)]
 
 
 _redis_client = None
@@ -76,3 +85,13 @@ def get_redis_client():
     if _redis_client is None:
         init_redis()
     return _redis_client
+
+
+def invalidate_rag_cache():
+    client = get_redis_client()
+    try:
+        keys = client.keys("rag_cache:*")
+        if keys:
+            client.delete(*keys)
+    except Exception as e:
+        logger.warning("Failed to invalidate RAG cache: %s", e)

@@ -10,6 +10,7 @@ from app.services.auth import get_current_user
 from app.services.embedder import _get_qdrant
 from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
+from app.services.redis_service import get_redis_client
 from app.services.llm_service import build_answer
 from app.services.rbac_filter import build_rbac_filter
 from app.config.settings import get_settings
@@ -101,6 +102,22 @@ def chat(
         normalized = normalize_query(req.query)
         if not normalized:
             raise HTTPException(status_code=400, detail="Query is empty after normalization")
+
+        # Check cache (only if NOT streaming)
+        import json
+        redis_client = get_redis_client()
+        cache_key = f"rag_cache:{current_user.role}:{req.department or ''}:{req.file_type or ''}:{req.date_range or ''}:{normalized}"
+        
+        if not req.stream:
+            try:
+                cached_res = redis_client.get(cache_key)
+                if cached_res:
+                    import logging
+                    logging.getLogger(__name__).info("Serving RAG response from cache")
+                    return json.loads(cached_res)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to read from RAG cache: {e}")
 
         # Org-visible docs (role-based) + this user's own personal docs
         visible_doc_ids = _get_visible_doc_ids_for_role(str(current_user.role), db)
@@ -216,7 +233,7 @@ def chat(
                 logger.error(f"LLM answer generation failed: {e}")
                 answer = ""
 
-        return {
+        response_payload = {
             "query": req.query,
             "normalized_query": normalized,
             "role": current_user.role,
@@ -224,6 +241,14 @@ def chat(
             "results": merged_results,
             "has_answer": has_answer,
         }
+
+        if not req.stream:
+            try:
+                redis_client.set(cache_key, json.dumps(response_payload), ex=600)
+            except Exception as e:
+                logger.warning(f"Failed to write to RAG cache: {e}")
+
+        return response_payload
     except HTTPException:
         raise
     except Exception as e:

@@ -16,8 +16,13 @@ def _get_model():
     return get_embedder()
 
 
+_qdrant_client = None
+
 def _get_qdrant() -> QdrantClient:
-    return QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+    global _qdrant_client
+    if _qdrant_client is None:
+        _qdrant_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
+    return _qdrant_client
 
 def ensure_collection(client: QdrantClient):
     existing = [c.name for c in client.get_collections().collections]
@@ -263,7 +268,10 @@ def reprocess_document(document_id: int, db: Session) -> dict:
     chunk_document(doc, db)
 
     # Perform embedding generation and Qdrant upsert
-    return embed_document(doc, db)
+    res = embed_document(doc, db)
+    from app.services.redis_service import invalidate_rag_cache
+    invalidate_rag_cache()
+    return res
 
 def get_qdrant_stats() -> dict:
     client = _get_qdrant()

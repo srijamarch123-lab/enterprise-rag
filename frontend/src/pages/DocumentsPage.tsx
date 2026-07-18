@@ -1,14 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
-import { getDocuments, deleteDocument, reprocessDocument } from '../services/api'
+import { getDocuments, deleteDocument, reprocessDocument, processAll } from '../services/api'
 import StatusBadge from '../components/StatusBadge'
+import { Document } from '../types'
 
 export default function DocumentsPage() {
   const qc = useQueryClient()
   const [statusFilter, setStatusFilter] = useState('')
 
-  const { data: docs = [], isLoading } = useQuery({
+  const { data: docs = [] as Document[], isLoading } = useQuery<Document[]>({
     queryKey: ['documents', statusFilter],
     queryFn: () => getDocuments(statusFilter ? { status: statusFilter } : undefined),
     refetchInterval: 5000,
@@ -21,6 +22,11 @@ export default function DocumentsPage() {
 
   const reprocessMut = useMutation({
     mutationFn: (id: number) => reprocessDocument(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents'] }),
+  })
+
+  const processAllMut = useMutation({
+    mutationFn: () => processAll(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['documents'] }),
   })
 
@@ -55,6 +61,18 @@ export default function DocumentsPage() {
           >
             {statuses.map(s => <option key={s} value={s}>{s || 'All statuses'}</option>)}
           </select>
+          <button
+            onClick={() => processAllMut.mutate()}
+            disabled={processAllMut.isPending}
+            style={{
+              padding: '7px 12px', borderRadius: '7px', border: '1px solid #c8e6d0',
+              background: '#27500A', color: '#fff', cursor: 'pointer', fontSize: '12px',
+              fontWeight: '500', display: 'flex', alignItems: 'center', gap: '4px',
+              opacity: processAllMut.isPending ? 0.7 : 1,
+            }}
+          >
+            {processAllMut.isPending ? 'Processing...' : 'Process Pending'}
+          </button>
           <button
             onClick={() => qc.invalidateQueries({ queryKey: ['documents'] })}
             style={{
@@ -98,7 +116,7 @@ export default function DocumentsPage() {
               </tr>
             </thead>
             <tbody>
-              {docs.map((doc: any, i: number) => (
+              {docs.map((doc: Document, i: number) => (
                 <tr
                   key={doc.id}
                   style={{ borderBottom: i < docs.length - 1 ? '1px solid #edf5ee' : 'none' }}

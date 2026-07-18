@@ -31,7 +31,7 @@ export function usePipeline() {
 
     let done = 0, skipped = 0, failed = 0
 
-    for (const doc of docIds) {
+    const promises = docIds.map(async (doc) => {
       try {
         await pollUntilProcessed(doc.id, (status, error) => {
           update(doc.id, { status, error })
@@ -47,7 +47,9 @@ export function usePipeline() {
           failed++
         }
       }
-    }
+    })
+
+    await Promise.all(promises)
 
     setSummary({ done, skipped, failed })
     setRunning(false)

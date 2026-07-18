@@ -9,49 +9,7 @@ import './ChatPage.css'
 
 const { color, font, radius } = theme
 
-interface SearchResult {
-  score: number
-  semantic_score?: number
-  bm25_score?: number
-  combined_score?: number
-  confidence_score?: number
-  search_type: 'semantic' | 'bm25' | 'hybrid'
-  qdrant_point_id?: string
-  doc_name?: string
-  doc_id?: number
-  path?: string
-  file_path?: string
-  chunk_id: number
-  chunk_index: number
-  page?: number | null
-  document_id?: number
-  page_number?: number | null
-  text_preview: string
-  department: string | null
-  access_level: string
-  filename?: string
-}
-
-interface ChatMessage {
-  id: string | number
-  role: 'user' | 'assistant'
-  content?: string
-  query?: string
-  answer?: string
-  results?: SearchResult[]
-  hasAnswer?: boolean
-  normalizedQuery?: string
-  error?: string
-  metadata?: Record<string, any>
-  suggestions?: string[]
-  feedbackSubmitted?: 'up' | 'down'
-}
-
-interface Conversation {
-  id: string
-  title: string
-  messages: ChatMessage[]
-}
+import { SearchResult, ChatMessage, Conversation } from '../types'
 
 function confidencePercent(r: SearchResult): number {
   if (typeof r.confidence_score === 'number') return r.confidence_score * 100
@@ -548,10 +506,10 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                                   <progress value={Math.min(pct, 100)} max={100} className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`} />
                                 </div>
                               </div>
-                              <div className="chat-page-result-preview">{(r as any).text || r.text_preview}</div>
+                              <div className="chat-page-result-preview">{r.text || r.text_preview}</div>
                               {(r.file_path || r.path) ? <div className="chat-page-result-path">
-                                {(r as any).drive_url ? (
-                                  <a href={(r as any).drive_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
+                                {r.drive_url ? (
+                                  <a href={r.drive_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
                                     View in Google Drive
                                   </a>
                                 ) : (r.file_path || r.path) ? (

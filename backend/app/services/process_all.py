@@ -176,6 +176,8 @@ def process_all_documents(db: Session) -> dict:
                 results["errors"][doc_id] = str(e)
 
     db.expire_all()
+    from app.services.redis_service import invalidate_rag_cache
+    invalidate_rag_cache()
     return results
 
 

@@ -415,7 +415,16 @@ def _merge_results(
         break
 
     for m in merged:
-        norm_rrf = m["rrf_score"] / max_possible_rrf
+        cid = m["chunk_id"]
+        has_sem = cid in semantic_ranks
+        has_bm = cid in bm25_ranks
+        max_possible = 0.0
+        if has_sem:
+            max_possible += 1.0 / (k + 1)
+        if has_bm:
+            max_possible += 1.0 / (k + 1)
+
+        norm_rrf = m["rrf_score"] / max_possible if max_possible > 0 else 0.0
         meta_boost = 0.0
         access_level = m.get("access_level", "")
         if access_level == "internal":

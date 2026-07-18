@@ -49,14 +49,29 @@ def _validate_file(file: UploadFile):
 
 
 
-def _save_file(file: UploadFile, ext: str) -> tuple[str, str, int]:
-    """Save uploaded file to disk. Returns (saved_filename, file_path, size)."""
+def _save_file(file: UploadFile, ext: str) -> tuple[str, str, int, str]:
+    """Save uploaded file to disk. Returns (saved_filename, file_path, size, actual_ext)."""
+    if ext in ("png", "jpg", "jpeg"):
+        try:
+            from PIL import Image
+            file.file.seek(0)
+            img = Image.open(file.file)
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGB")
+            saved_name = f"{uuid.uuid4().hex}.webp"
+            dest = UPLOAD_DIR / saved_name
+            img.save(dest, format="WEBP", quality=80)
+            size = dest.stat().st_size
+            return saved_name, str(dest), size, "webp"
+        except Exception:
+            file.file.seek(0)
+
     saved_name = f"{uuid.uuid4().hex}.{ext}"
     dest = UPLOAD_DIR / saved_name
     with dest.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     size = dest.stat().st_size
-    return saved_name, str(dest), size
+    return saved_name, str(dest), size, ext
 
 
 def _run_extraction(doc_id: int, db: Session):
@@ -76,6 +91,8 @@ def _run_extraction(doc_id: int, db: Session):
         # Immediately embed after successful chunking
         from app.services.embedder import embed_document
         embed_document(doc, db)
+        from app.services.redis_service import invalidate_rag_cache
+        invalidate_rag_cache()
     except Exception as e:
         doc.status = DocumentStatus.failed
         doc.extraction_error = str(e)
@@ -93,13 +110,13 @@ def upload_file(
     db: Session = Depends(get_db),
 ):
     ext = _validate_file(file)
-    saved_name, file_path, size = _save_file(file, ext)
+    saved_name, file_path, size, actual_ext = _save_file(file, ext)
 
     doc = Document(
         filename=saved_name,
         original_filename=file.filename,
         file_path=file_path,
-        file_type=ext,
+        file_type=actual_ext,
         file_size=size,
         department=department,
         source="manual",
@@ -137,12 +154,12 @@ def upload_bulk(
     for file in files:
         try:
             ext = _validate_file(file)
-            saved_name, file_path, size = _save_file(file, ext)
+            saved_name, file_path, size, actual_ext = _save_file(file, ext)
             doc = Document(
                 filename=saved_name,
                 original_filename=file.filename,
                 file_path=file_path,
-                file_type=ext,
+                file_type=actual_ext,
                 file_size=size,
                 department=department,
                 source="manual",
@@ -233,6 +250,8 @@ def delete_document(doc_id: int, db: Session = Depends(get_db)):
         os.remove(file_path)
     db.delete(doc)
     db.commit()
+    from app.services.redis_service import invalidate_rag_cache
+    invalidate_rag_cache()
 
 
 

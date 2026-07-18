@@ -32,6 +32,25 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
+import logging
+
+logger = logging.getLogger(__name__)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+    logger.error(f"Global exception caught on path {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred. Please contact the administrator."},
+    )
+
 # ─── CORS ────────────────────────────────────────────────────────────────────
 cors_origins = [origin.strip() for origin in settings.cors_allowed_origins.split(",") if origin.strip()]
 
