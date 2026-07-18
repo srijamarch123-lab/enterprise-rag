@@ -2,13 +2,22 @@ import os
 import re
 from pathlib import Path
 
-# Configure pytesseract to use explicit Tesseract path on Windows
+# Configure pytesseract to use explicit Tesseract path
 _TESSERACT_PATH = os.environ.get("TESSERACT_CMD")
 if not _TESSERACT_PATH:
     if os.name == "nt":
         _TESSERACT_PATH = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
     else:
-        _TESSERACT_PATH = "tesseract"
+        import shutil
+        resolved = shutil.which("tesseract")
+        if resolved:
+            _TESSERACT_PATH = resolved
+        elif os.path.exists("/usr/bin/tesseract"):
+            _TESSERACT_PATH = "/usr/bin/tesseract"
+        elif os.path.exists("/usr/local/bin/tesseract"):
+            _TESSERACT_PATH = "/usr/local/bin/tesseract"
+        else:
+            _TESSERACT_PATH = "tesseract"
 
 
 def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:

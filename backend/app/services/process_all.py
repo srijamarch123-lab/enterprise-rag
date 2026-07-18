@@ -50,9 +50,12 @@ def ensure_file_exists(doc: Document, db: Session):
             creds_path = settings.google_credentials_path
             
             if not os.path.exists(creds_path):
-                fallback = Path(__file__).parent.parent.parent / creds_path
-                if fallback.exists():
-                    creds_path = str(fallback)
+                if not os.path.isabs(creds_path):
+                    fallback = Path(__file__).parent.parent.parent / creds_path
+                    if fallback.exists():
+                        creds_path = str(fallback.resolve())
+                    else:
+                        raise FileNotFoundError(f"Google credentials file not found at {creds_path}")
                 else:
                     raise FileNotFoundError(f"Google credentials file not found at {creds_path}")
 

@@ -44,6 +44,17 @@ class ImportAllRequest(BaseModel):
 def _get_service(credentials_json: dict):
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
+    
+    # Check if this is a service account credentials json
+    required_keys = ["type", "project_id", "private_key_id", "private_key", "client_email"]
+    missing = [k for k in required_keys if k not in credentials_json]
+    if missing:
+        raise ValueError(
+            f"Invalid Service Account JSON. Missing required fields: {', '.join(missing)}. "
+            "Make sure you are uploading a Service Account Key JSON from the Google Cloud Console "
+            "(IAM & Admin -> Service Accounts -> Keys), and not an OAuth client ID credential."
+        )
+
     SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
     creds = service_account.Credentials.from_service_account_info(credentials_json, scopes=SCOPES)
     return build("drive", "v3", credentials=creds)
@@ -53,6 +64,7 @@ def _download_and_save(credentials_json: dict, drive_meta: dict) -> tuple[str, s
     from googleapiclient.http import MediaIoBaseDownload
     import io
     service = _get_service(credentials_json)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     saved_name = f"{uuid.uuid4().hex}.{drive_meta['file_type']}"
     dest = str(UPLOAD_DIR / saved_name)
     request = service.files().get_media(fileId=drive_meta["drive_file_id"])
@@ -68,6 +80,11 @@ def _download_and_save(credentials_json: dict, drive_meta: dict) -> tuple[str, s
 @router.post("/files")
 def list_files(req: DriveRequest):
     try:
+        # Save credentials to settings.google_credentials_path so background sync/redownloads can use it
+        import json
+        with open(settings.google_credentials_path, "w", encoding="utf-8") as f:
+            json.dump(req.credentials_json, f, indent=2)
+
         service = _get_service(req.credentials_json)
         query = " or ".join(f"mimeType='{m}'" for m in SUPPORTED_MIME_TYPES)
         if req.folder_id:
@@ -105,6 +122,11 @@ def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Sessi
         return {"id": existing.id, "filename": req.file["name"], "skipped": True}
 
     try:
+        # Save credentials to settings.google_credentials_path
+        import json
+        with open(settings.google_credentials_path, "w", encoding="utf-8") as f:
+            json.dump(req.credentials_json, f, indent=2)
+
         saved_name, dest, size = _download_and_save(req.credentials_json, req.file)
     except Exception as e:
         raise HTTPException(500, f"Download failed: {e}")
@@ -128,6 +150,16 @@ def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Sessi
 @router.post("/import-all")
 def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     results = []
+    
+    # Save credentials to settings.google_credentials_path
+    if req.files:
+        try:
+            import json
+            with open(settings.google_credentials_path, "w", encoding="utf-8") as f:
+                json.dump(req.credentials_json, f, indent=2)
+        except Exception as e:
+            raise HTTPException(500, f"Failed to save credentials: {e}")
+
     for f in req.files:
         existing = db.query(Document).filter(
             Document.original_filename == f["name"]

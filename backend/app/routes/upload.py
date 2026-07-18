@@ -72,6 +72,9 @@ def _run_extraction(doc_id: int, db: Session):
         doc.processed_at = datetime.utcnow()
         # Immediately chunk after successful extraction
         chunk_document(doc, db)
+        # Immediately embed after successful chunking
+        from app.services.embedder import embed_document
+        embed_document(doc, db)
     except Exception as e:
         doc.status = DocumentStatus.failed
         doc.extraction_error = str(e)

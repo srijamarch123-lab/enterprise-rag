@@ -156,9 +156,9 @@ export default function DrivePage() {
               color: '#1a3d2a', boxSizing: 'border-box',
             }}
           />
-          {active.connected && (
+          {active.credentials && Object.keys(active.credentials).length > 0 && (
             <div style={{ fontSize: '11px', color: '#27500A', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <CheckCircle size={11} /> Key loaded
+              <CheckCircle size={11} /> Key parsed and loaded locally
             </div>
           )}
         </div>

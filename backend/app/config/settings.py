@@ -78,14 +78,23 @@ def get_settings() -> Settings:
     if not settings.jwt_secret_key or settings.jwt_secret_key == "change-me":
         settings.jwt_secret_key = secrets.token_hex(32)
         
-    # Resolve relative SQLite database path to backend directory
+    # Resolve relative SQLite database, google credentials, and upload paths to backend directory
+    from pathlib import Path
+    backend_dir = Path(__file__).parent.parent.parent.resolve()
+
     if settings.database_url.startswith("sqlite:///"):
         path_str = settings.database_url[10:]
-        from pathlib import Path
         db_path = Path(path_str)
         if not db_path.is_absolute():
-            backend_dir = Path(__file__).parent.parent.parent.resolve()
             settings.database_url = f"sqlite:///{ (backend_dir / db_path).resolve() }"
+
+    creds_path = Path(settings.google_credentials_path)
+    if not creds_path.is_absolute():
+        settings.google_credentials_path = str((backend_dir / creds_path).resolve())
+
+    upload_path = Path(settings.upload_dir)
+    if not upload_path.is_absolute():
+        settings.upload_dir = str((backend_dir / upload_path).resolve())
 
     return settings
 

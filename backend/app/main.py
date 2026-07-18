@@ -70,7 +70,7 @@ if static_dir.exists():
 @app.on_event("startup")
 def on_startup():
     init_db()
-    Path("uploads").mkdir(exist_ok=True)
+    Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     from app.startup import create_default_admin
     create_default_admin()
     try:
