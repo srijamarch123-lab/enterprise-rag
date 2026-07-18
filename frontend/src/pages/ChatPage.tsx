@@ -83,6 +83,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const plusRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const [previewSource, setPreviewSource] = useState<SearchResult | null>(null)
   // Filters
   const [filterDept, setFilterDept] = useState('')
   const [filterFileType, setFilterFileType] = useState('')
