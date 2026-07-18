@@ -28,6 +28,12 @@ def ensure_file_exists(doc: Document, db: Session):
     # Standardize path for operating system
     normalized_path = os.path.normpath(doc.file_path)
     
+    if not os.path.isabs(normalized_path):
+        backend_dir = Path(__file__).parent.parent.parent.resolve()
+        normalized_path = str((backend_dir / normalized_path).resolve())
+        doc.file_path = normalized_path
+        db.commit()
+
     if os.path.exists(normalized_path):
         return
 

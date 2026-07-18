@@ -11,16 +11,9 @@ from app.config.settings import get_settings
 settings = get_settings()
 
 VECTOR_DIM = 384  # all-MiniLM-L6-v2 dimension
-_model = None
-
 def _get_model():
-    global _model
-    if _model is None:
-        import os
-        cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
-        os.makedirs(cache_dir, exist_ok=True)
-        _model = TextEmbedding("BAAI/bge-small-en-v1.5", cache_dir=cache_dir)
-    return _model
+    from app.services.query_embedder import get_embedder
+    return get_embedder()
 
 
 def _get_qdrant() -> QdrantClient:
@@ -58,13 +51,12 @@ def _visible_roles_for_access_level(access_level: AccessLevel) -> list[str]:
 
 
 def embed_document(document: Document, db: Session) -> dict:
-    """Embed a document, continuing even if some chunks fail.
+    """Embed a document using batching with chunk-by-chunk fallback.
 
     - If all chunks are already embedded => skipped.
     - Otherwise embed only chunks where is_embedded=False.
-    - On per-chunk failure: record Chunk.embedding_error and keep going.
-    - If at least one chunk succeeds => mark document.status=embedded.
-    - If all remaining chunks fail => mark document.status=failed.
+    - Attempt batch embedding and batch Qdrant upsert first for speed.
+    - On batch failure: fall back to chunk-by-chunk execution to isolate errors.
     """
     if check_already_embedded(document.id, db):
         return {"skipped": True, "reason": "already embedded"}
@@ -88,11 +80,16 @@ def embed_document(document: Document, db: Session) -> dict:
     embedded_count = 0
     failed_count = 0
 
-    # Embed chunk-by-chunk to isolate failures
-    for chunk in chunks:
-        try:
-            vector = next(model.embed([chunk.text]))
+    # Try batching first
+    try:
+        texts = [chunk.text for chunk in chunks]
+        vectors = list(model.embed(texts))
+        
+        points = []
+        point_ids = []
+        for chunk, vector in zip(chunks, vectors):
             point_id = str(uuid.uuid4())
+            point_ids.append(point_id)
             point = PointStruct(
                 id=point_id,
                 vector=vector,
@@ -110,30 +107,68 @@ def embed_document(document: Document, db: Session) -> dict:
                     "parent_text": chunk.parent_text,
                 },
             )
+            points.append(point)
 
-            qdrant_client.upsert(
-                collection_name=settings.qdrant_collection_name,
-                points=[point],
-            )
+        # Upsert all points in one batch request
+        qdrant_client.upsert(
+            collection_name=settings.qdrant_collection_name,
+            points=points,
+        )
 
+        # Update database statuses
+        for chunk, point_id in zip(chunks, point_ids):
             chunk.qdrant_point_id = point_id
             chunk.is_embedded = True
             chunk.embedding_error = None
-            embedded_count += 1
+        embedded_count = len(chunks)
 
-        except Exception as e:
-            db.rollback()
-            chunk.is_embedded = False
-            chunk.embedding_error = str(e)
-            failed_count += 1
-            # persist per-chunk failure and continue
-            db.add(chunk)
-            db.commit()
+    except Exception as batch_err:
+        import logging
+        logging.getLogger(__name__).warning("Batch embedding/upsert failed, falling back to chunk-by-chunk: %s", batch_err)
+        # Fallback to chunk-by-chunk to isolate failures
+        for chunk in chunks:
+            try:
+                vector = next(model.embed([chunk.text]))
+                point_id = str(uuid.uuid4())
+                point = PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload={
+                        "chunk_id": chunk.id,
+                        "document_id": document.id,
+                        "chunk_index": chunk.chunk_index,
+                        "page_number": chunk.page_number,
+                        "department": document.department,
+                        "access_level": document.access_level,
+                        "visible_roles": visible_roles,
+                        "filename": document.original_filename,
+                        "file_type": document.file_type,
+                        "text_preview": chunk.text[:200],
+                        "parent_text": chunk.parent_text,
+                    },
+                )
+
+                qdrant_client.upsert(
+                    collection_name=settings.qdrant_collection_name,
+                    points=[point],
+                )
+
+                chunk.qdrant_point_id = point_id
+                chunk.is_embedded = True
+                chunk.embedding_error = None
+                embedded_count += 1
+
+            except Exception as e:
+                db.rollback()
+                chunk.is_embedded = False
+                chunk.embedding_error = str(e)
+                failed_count += 1
+                db.add(chunk)
+                db.commit()
 
     if embedded_count > 0 and failed_count == 0:
         document.status = DocumentStatus.embedded
     elif embedded_count > 0:
-        # partially embedded; keep as embedded so UI can retrieve successes
         document.status = DocumentStatus.embedded
     else:
         document.status = DocumentStatus.failed

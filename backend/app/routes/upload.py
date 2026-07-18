@@ -188,6 +188,7 @@ def list_documents(
             "chunk_count": len(d.chunks) if getattr(d, "chunks", None) is not None else None,
             "uploaded_at": d.uploaded_at,
             "processed_at": d.processed_at,
+            "extraction_error": d.extraction_error,
         }
         for d in docs
     ]
@@ -220,7 +221,11 @@ def delete_document(doc_id: int, db: Session = Depends(get_db)):
     if not doc:
         raise HTTPException(404, "Document not found")
     # Delete from disk
-    if os.path.exists(doc.file_path):
-        os.remove(doc.file_path)
+    file_path = doc.file_path
+    if not os.path.isabs(file_path):
+        backend_dir = Path(__file__).parent.parent.parent.resolve()
+        file_path = str((backend_dir / file_path).resolve())
+    if os.path.exists(file_path):
+        os.remove(file_path)
     db.delete(doc)
     db.commit()

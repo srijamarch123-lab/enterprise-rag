@@ -186,8 +186,8 @@ def get_audit_logs(
         {
             "id": l.id,
             "user_id": l.user_id,
-            "user_email": l.details.get("email") if l.details else (l.user.email if l.user else None),
-            "user_role": l.details.get("role") if l.details else (l.user.role if l.user else None),
+            "user_email": l.details.get("email") if isinstance(l.details, dict) else (l.user.email if l.user else None),
+            "user_role": l.details.get("role") if isinstance(l.details, dict) else (l.user.role if l.user else None),
             "action": l.action,
             "timestamp": l.timestamp.isoformat() if l.timestamp else None,
             "ip_address": l.ip_address,

@@ -77,7 +77,7 @@ export default function ProcessingPage({ externalProgress, externalRunning, exte
               else if (d.status === 'chunking') status = 'chunking'
               else if (d.status === 'chunked') status = 'embedding'
               else if (d.status === 'embedding') status = 'embedding'
-              
+
               return {
                 id: d.id,
                 filename: d.filename,
@@ -85,11 +85,11 @@ export default function ProcessingPage({ externalProgress, externalRunning, exte
               }
             })
             internal.setProgress(mapped)
-            
+
             const activeDocs = nonEmbedded
               .filter((d: any) => d.status !== 'failed')
               .map((d: any) => ({ id: d.id, filename: d.filename }))
-            
+
             if (activeDocs.length > 0) {
               internal.runPipeline(activeDocs)
             }

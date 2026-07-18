@@ -15,6 +15,10 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
     path = Path(file_path)
     ext = file_type.lower().lstrip(".")
 
+    if not path.is_absolute():
+        backend_dir = Path(__file__).parent.parent.parent.resolve()
+        path = (backend_dir / path).resolve()
+
     if not path.exists():
         raise FileNotFoundError(f"File not found: {path}")
 

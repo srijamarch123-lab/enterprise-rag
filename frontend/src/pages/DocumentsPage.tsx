@@ -98,8 +98,23 @@ export default function DocumentsPage() {
                   key={doc.id}
                   style={{ borderBottom: i < docs.length - 1 ? '1px solid #edf5ee' : 'none' }}
                 >
-                  <td style={{ padding: '10px 14px', color: '#1a3d2a', fontWeight: '500', maxWidth: '220px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {doc.filename}
+                  <td style={{ padding: '10px 14px', color: '#1a3d2a', fontWeight: '500', maxWidth: '220px' }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={doc.filename}>
+                      {doc.filename}
+                    </div>
+                    {doc.status === 'failed' && doc.extraction_error && (
+                      <div style={{
+                        fontSize: '11px',
+                        color: '#A32D2D',
+                        fontWeight: 'normal',
+                        marginTop: '4px',
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-word',
+                        lineHeight: '1.2'
+                      }}>
+                        {doc.extraction_error}
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '10px 14px', color: '#5a8a6a', textTransform: 'uppercase', fontSize: '11px' }}>{doc.file_type}</td>
                   <td style={{ padding: '10px 14px', color: '#5a8a6a' }}>{doc.department ?? '—'}</td>
