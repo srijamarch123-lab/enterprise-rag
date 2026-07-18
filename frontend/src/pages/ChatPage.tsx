@@ -633,7 +633,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
               <div style={{ marginTop: '16px', borderTop: `1px solid ${color.border}`, paddingTop: '16px' }}>
                 <div style={{ fontWeight: 600, marginBottom: '8px' }}>Matched Context Snippet:</div>
                 <div style={{ background: '#fcfbf9', border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '16px', maxHeight: '300px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: font, fontSize: '13px', lineHeight: 1.5 }}>
-                  {previewSource.text_preview}
+                  {(previewSource as any).parent_text || (previewSource as any).text || previewSource.text_preview}
                 </div>
               </div>
             </div>
@@ -641,7 +641,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         </div>
       )}
 
-      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt" style={{ display: 'none' }} onChange={handleFileUpload} />
+      <input ref={fileInputRef} type="file" accept=".pdf,.docx,.pptx,.txt,.png,.jpg,.jpeg" style={{ display: 'none' }} onChange={handleFileUpload} />
     </div>
   )
 }

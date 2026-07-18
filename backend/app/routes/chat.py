@@ -1,4 +1,4 @@
-﻿from typing import Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -34,6 +34,7 @@ class ChatRequest(BaseModel):
     limit: int = 10
     department: Optional[str] = None
     keyword_backend: Optional[str] = None
+    stream: bool = False
 
 
 def _make_chat_filter(role: str, user_id: int, department: Optional[str]):
@@ -114,6 +115,51 @@ def chat(
                 chunk_row = db.query(Chunk).filter(Chunk.id == r["chunk_id"]).first()
                 if chunk_row:
                     r["full_text"] = chunk_row.text
+
+        if req.stream:
+            from fastapi.responses import StreamingResponse
+            import json
+
+            def event_generator():
+                serializable_results = []
+                for r in merged_results:
+                    serializable_results.append({
+                        "chunk_id": r.get("chunk_id"),
+                        "document_id": r.get("document_id"),
+                        "chunk_index": r.get("chunk_index"),
+                        "page_number": r.get("page_number"),
+                        "text_preview": r.get("text_preview"),
+                        "department": r.get("department"),
+                        "access_level": r.get("access_level"),
+                        "filename": r.get("filename"),
+                        "file_path": r.get("file_path"),
+                        "combined_score": r.get("combined_score"),
+                    })
+
+                yield f"data: {json.dumps({'event': 'metadata', 'results': serializable_results, 'has_answer': has_answer})}\n\n"
+
+                if has_answer and merged_results:
+                    try:
+                        from app.services.llm_service import build_answer_stream
+                        context_chunks = [
+                            {
+                                "text": r.get("full_text") or r.get("text_preview", ""),
+                                "filename": r.get("filename"),
+                                "document_id": r.get("document_id"),
+                                "page_number": r.get("page_number"),
+                                "chunk_index": r.get("chunk_index"),
+                            }
+                            for r in merged_results
+                        ]
+                        for token in build_answer_stream(req.query, context_chunks):
+                            yield f"data: {json.dumps({'event': 'token', 'token': token})}\n\n"
+                    except Exception as e:
+                        logger.error(f"Streaming LLM failed: {e}")
+                        yield f"data: {json.dumps({'event': 'error', 'error': str(e)})}\n\n"
+
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(event_generator(), media_type="text/event-stream")
 
         answer = ""
         if has_answer and merged_results:

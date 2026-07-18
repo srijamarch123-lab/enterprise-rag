@@ -39,6 +39,8 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
         return _extract_pptx(path)
     if ext == "txt":
         return _extract_txt(path)
+    if ext in ["png", "jpg", "jpeg"]:
+        return _extract_image(path)
 
     raise ValueError(f"Unsupported file type: {ext}")
 
@@ -211,6 +213,23 @@ def _extract_pptx(path: Path) -> tuple[str, int]:
 def _extract_txt(path: Path) -> tuple[str, None]:
     text = path.read_text(encoding="utf-8", errors="replace")
     return _clean(text), None
+
+
+def _extract_image(path: Path) -> tuple[str, None]:
+    import pytesseract
+    from PIL import Image
+
+    # Set the Tesseract path for pytesseract
+    pytesseract.pytesseract.tesseract_cmd = _TESSERACT_PATH
+    try:
+        img = Image.open(str(path))
+        text = pytesseract.image_to_string(img).strip()
+        cleaned = _clean(text)
+        if not cleaned:
+            raise ValueError("Image OCR produced empty text")
+        return cleaned, None
+    except Exception as e:
+        raise ValueError(f"Image extraction failed: {e}")
 
 
 def _clean(text: str) -> str:

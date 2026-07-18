@@ -499,6 +499,7 @@ def search(
             chunk = chunk_map.get(r.get("chunk_id"))
             if chunk:
                 r["text"] = chunk.text
+                r["parent_text"] = chunk.parent_text
                 if not r.get("text_preview"):
                     r["text_preview"] = (chunk.text or "")[:200]
 
@@ -533,6 +534,7 @@ def search(
                         "doc_name": doc.original_filename if doc else None,
                         "search_type": "bm25",
                         "text": chunk.text,
+                        "parent_text": chunk.parent_text,
                     }
                 )
 

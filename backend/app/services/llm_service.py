@@ -37,7 +37,7 @@ def assemble_context(chunks: list[dict[str, Any]], token_limit: int = MAX_CONTEX
     total_tokens = 0
 
     for chunk in sorted_chunks:
-        text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
+        text = (chunk.get("parent_text") or chunk.get("text") or chunk.get("text_preview") or "").strip()
         if not text:
             continue
         normalized_text = " ".join(text.split())
@@ -269,3 +269,19 @@ def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
     except Exception as exc:
         logger.warning("Falling back to local answer generation: %s", exc)
         return build_fallback_answer(query, chunks)
+
+
+def build_answer_stream(query: str, chunks: list[dict[str, Any]]):
+    if not chunks:
+        yield "I don't know based on the provided documents."
+        return
+    messages = build_chat_prompt(query, chunks)
+    if not messages:
+        yield build_fallback_answer(query, chunks)
+        return
+    try:
+        llm = LLMService()
+        yield from llm.stream_chat_completion(messages=messages, max_tokens=900)
+    except Exception as exc:
+        logger.warning("Streaming fell back to local answer generation: %s", exc)
+        yield build_fallback_answer(query, chunks)

@@ -94,5 +94,29 @@ class ExtractorTests(unittest.TestCase):
             if temp_pptx.exists():
                 os.remove(temp_pptx)
 
+    def test_extract_image(self):
+        """Test image character extraction using Pillow and pytesseract OCR."""
+        from PIL import Image, ImageDraw
+        
+        # Create a simple white image
+        img = Image.new("RGB", (300, 100), color="white")
+        d = ImageDraw.Draw(img)
+        # Using default bitmap font
+        d.text((10, 10), "Hello", fill="black")
+        
+        temp_img = Path("temp_test_image.png")
+        try:
+            img.save(str(temp_img))
+            
+            # Extract text
+            text, pages = extract_text(str(temp_img), "png")
+            self.assertIsNotNone(text)
+            self.assertIn("Hello", text)
+            self.assertIsNone(pages)
+            print(f"\n  [Image OCR Extractor] Successfully extracted text from image: {text.strip()}")
+        finally:
+            if temp_img.exists():
+                os.remove(temp_img)
+
 if __name__ == "__main__":
     unittest.main()
