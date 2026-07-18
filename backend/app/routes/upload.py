@@ -15,13 +15,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Backgro
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Document, DocumentStatus
+from app.models import Document, DocumentStatus, User
 from app.config.settings import get_settings
 from app.services.extractor import extract_text
 from app.services.chunker import chunk_document
 from app.dependencies.rbac import require_manager_or_above, require_admin
 from app.services.limiter import limiter
 from app.services.auth import get_current_user
+from app.services.audit import log_action
 
 settings = get_settings()
 

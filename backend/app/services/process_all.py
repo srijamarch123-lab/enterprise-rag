@@ -90,17 +90,14 @@ def ensure_file_exists(doc: Document, db: Session):
 
 
 def process_all_documents(db: Session) -> dict:
-    """End-to-end processing for all stored documents.
-
-    For each document:
-    - extract_text (retry for failed/missing/empty)
-    - chunk_document
-    - embed_document
-
-    Continues on error per document.
+    """End-to-end processing for all stored documents using a ThreadPoolExecutor
+    to process documents in parallel safely with separate database sessions.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from app.database import SessionLocal
 
     docs = db.query(Document).order_by(Document.id).all()
+    doc_ids = [doc.id for doc in docs]
 
     results = {
         "total": len(docs),
@@ -113,50 +110,72 @@ def process_all_documents(db: Session) -> dict:
         "skipped": 0,
     }
 
-    for doc in docs:
+    def _process_one(doc_id: int):
+        thread_db = SessionLocal()
+        extracted = False
         try:
+            doc = thread_db.query(Document).filter(Document.id == doc_id).first()
+            if not doc:
+                return False, False
+
             # 1) extraction
             if _should_extract(doc):
                 doc.status = DocumentStatus.extracting
                 doc.extraction_error = None
-                db.commit()
+                thread_db.commit()
 
-                ensure_file_exists(doc, db)
+                ensure_file_exists(doc, thread_db)
 
                 text, pages = extract_text(doc.file_path, doc.file_type)
                 doc.extracted_text = text
                 doc.page_count = pages
                 doc.processed_at = datetime.utcnow()
                 doc.status = DocumentStatus.extracted
-                db.commit()
-                results["extracted"] += 1
+                thread_db.commit()
+                extracted = True
 
-            # 2) chunking (ensure we always chunk)
-            doc = db.query(Document).filter(Document.id == doc.id).first()
+            # 2) chunking
+            doc = thread_db.query(Document).filter(Document.id == doc_id).first()
             if not doc or not doc.extracted_text:
                 raise ValueError("Document has no extracted_text; cannot chunk")
 
-            chunk_document(doc, db)
-            results["chunked"] += 1
+            chunk_document(doc, thread_db)
 
-            # 3) embedding (ensure we always embed)
-            embed_document(doc, db)
-            results["embedded"] += 1
+            # 3) embedding
+            embed_document(doc, thread_db)
 
-            results["processed"] += 1
-
+            return True, extracted
         except Exception as e:
-            doc.status = DocumentStatus.failed
-            doc.extraction_error = getattr(doc, "extraction_error", None)
-            # try to keep the error in extraction_error for visibility in UI
             try:
-                doc.extraction_error = str(e)
+                doc = thread_db.query(Document).filter(Document.id == doc_id).first()
+                if doc:
+                    doc.status = DocumentStatus.failed
+                    doc.extraction_error = str(e)
+                    thread_db.commit()
             except Exception:
                 pass
-            db.commit()
-            results["failed"] += 1
-            results["errors"][doc.id] = str(e)
+            raise e
+        finally:
+            thread_db.close()
 
+    max_workers = 10
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_process_one, doc_id): doc_id for doc_id in doc_ids}
+        for future in as_completed(futures):
+            doc_id = futures[future]
+            try:
+                success, extracted = future.result()
+                if success:
+                    results["processed"] += 1
+                    results["chunked"] += 1
+                    results["embedded"] += 1
+                    if extracted:
+                        results["extracted"] += 1
+            except Exception as e:
+                results["failed"] += 1
+                results["errors"][doc_id] = str(e)
+
+    db.expire_all()
     return results
 
 
