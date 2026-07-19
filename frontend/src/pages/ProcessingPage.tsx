@@ -61,37 +61,31 @@ export default function ProcessingPage({ externalProgress, externalRunning, exte
     const stateDocs = location.state?.docs as { id: number; filename: string }[] | undefined
     if (stateDocs && stateDocs.length > 0 && !hasStarted.current) {
       hasStarted.current = true
-      internal.runPipeline(stateDocs)
+      void internal.runPipeline(stateDocs)
       window.history.replaceState({}, document.title)
     } else if (!hasStarted.current) {
       hasStarted.current = true
       getDocuments()
         .then((docs: any[]) => {
-          const nonEmbedded = docs.filter((d: any) => d.status !== 'embedded')
-          if (nonEmbedded.length > 0) {
-            const mapped: DocProgress[] = nonEmbedded.map((d: any) => {
-              let status: DocProgress['status'] = 'waiting'
-              if (d.status === 'failed') status = 'failed'
-              else if (d.status === 'extracting') status = 'extracting'
-              else if (d.status === 'extracted') status = 'chunking'
-              else if (d.status === 'chunking') status = 'chunking'
-              else if (d.status === 'chunked') status = 'embedding'
-              else if (d.status === 'embedding') status = 'embedding'
-
-              return {
-                id: d.id,
-                filename: d.filename,
-                status,
-              }
-            })
+          if (Array.isArray(docs) && docs.length > 0) {
+            const mapped: DocProgress[] = docs.map((d: any) => ({
+              id: d.id,
+              filename: d.filename,
+              status: d.status === 'embedded' ? 'done' : d.status === 'failed' ? 'failed' : d.status === 'extracting' ? 'extracting' : d.status === 'extracted' || d.status === 'chunking' ? 'chunking' : d.status === 'chunked' || d.status === 'embedding' ? 'embedding' : 'waiting',
+              error: d.extraction_error || undefined,
+            }))
             internal.setProgress(mapped)
 
-            const activeDocs = nonEmbedded
-              .filter((d: any) => d.status !== 'failed')
+            const activeDocs = docs
+              .filter((d: any) => d.status !== 'embedded' && d.status !== 'failed')
               .map((d: any) => ({ id: d.id, filename: d.filename }))
 
             if (activeDocs.length > 0) {
-              internal.runPipeline(activeDocs)
+              void internal.runPipeline(activeDocs)
+            } else {
+              const doneCount = docs.filter((d: any) => d.status === 'embedded').length
+              const failedCount = docs.filter((d: any) => d.status === 'failed').length
+              internal.setSummary({ done: doneCount, skipped: 0, failed: failedCount })
             }
           }
         })
@@ -99,7 +93,7 @@ export default function ProcessingPage({ externalProgress, externalRunning, exte
           console.error('Failed to load processing documents:', err)
         })
     }
-  }, [location.state, internal])
+  }, [location.state])
 
   const failed = progress.filter(d => d.status === 'failed' || d.status === 'skipped')
   const failedOnly = progress.filter(d => d.status === 'failed')
@@ -149,7 +143,7 @@ export default function ProcessingPage({ externalProgress, externalRunning, exte
 
           {/* Per-document list */}
           <div className="processing-list">
-            {progress.map((doc, i) => (
+            {progress.map((doc) => (
               <div
                 key={doc.id}
                 className={`processing-item ${doc.status === 'done' ? 'processing-item-done' : ''}`}

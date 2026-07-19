@@ -8,13 +8,63 @@ export type DocProgress = {
   error?: string
 }
 
+function mapStatus(backendStatus: string): DocProgress['status'] {
+  if (backendStatus === 'embedded') return 'done'
+  if (backendStatus === 'failed') return 'failed'
+  if (backendStatus === 'extracting') return 'extracting'
+  if (backendStatus === 'extracted' || backendStatus === 'chunking') return 'chunking'
+  if (backendStatus === 'chunked' || backendStatus === 'embedding') return 'embedding'
+  return 'waiting'
+}
+
 export function usePipeline() {
   const [progress, setProgress] = useState<DocProgress[]>([])
   const [running, setRunning] = useState(false)
   const [summary, setSummary] = useState<{ done: number; skipped: number; failed: number } | null>(null)
 
-  const update = (id: number, patch: Partial<DocProgress>) =>
-    setProgress(prev => prev.map(d => d.id === id ? { ...d, ...patch } : d))
+  const syncDocumentStatuses = useCallback(async (targetDocIds?: number[]) => {
+    try {
+      const { data } = await api.get('/documents')
+      if (!Array.isArray(data)) return null
+
+      const docMap = new Map<number, any>()
+      data.forEach((d: any) => docMap.set(d.id, d))
+
+      setProgress((prev) => {
+        const baseDocs = prev.length > 0 ? prev : data.map((d: any) => ({
+          id: d.id,
+          filename: d.filename,
+          status: mapStatus(d.status),
+          error: d.extraction_error || undefined,
+        }))
+        
+        return baseDocs.map((doc) => {
+          const fresh = docMap.get(doc.id)
+          if (!fresh) return doc
+          const st = mapStatus(fresh.status)
+
+          return {
+            ...doc,
+            filename: fresh.filename || doc.filename,
+            status: st,
+            error: fresh.extraction_error || undefined,
+          }
+        })
+      })
+
+      const allDocs = Array.from(docMap.values())
+      const relevant = targetDocIds ? allDocs.filter(d => targetDocIds.includes(d.id)) : allDocs
+      const isAllFinished = relevant.every(d => d.status === 'embedded' || d.status === 'failed')
+
+      const finalDone = relevant.filter(d => d.status === 'embedded').length
+      const finalFailed = relevant.filter(d => d.status === 'failed').length
+
+      return { isAllFinished, done: finalDone, skipped: 0, failed: finalFailed }
+    } catch (e) {
+      console.error('Failed to sync document statuses:', e)
+      return null
+    }
+  }, [])
 
   const runPipeline = useCallback(async (docIds: { id: number; filename: string }[]) => {
     setRunning(true)
@@ -22,80 +72,38 @@ export function usePipeline() {
     const initial: DocProgress[] = docIds.map(d => ({ ...d, status: 'waiting' }))
     setProgress(initial)
 
-    // Trigger backend processing for all pending files in the database
+    // Trigger backend processing for all pending files
     try {
       await api.post('/process-all')
     } catch (e) {
-      console.error('Failed to trigger backend process-all:', e)
+      console.error('Failed to trigger process-all:', e)
     }
 
-    let done = 0, skipped = 0, failed = 0
-
-    const promises = docIds.map(async (doc) => {
-      try {
-        await pollUntilProcessed(doc.id, (status, error) => {
-          update(doc.id, { status, error })
-        })
-        done++
-      } catch (e: any) {
-        const errorMsg = e.message ?? 'Processing failed'
-        if (errorMsg.toLowerCase().includes('no text')) {
-          update(doc.id, { status: 'skipped', error: errorMsg })
-          skipped++
-        } else {
-          update(doc.id, { status: 'failed', error: errorMsg })
-          failed++
-        }
+    const ids = docIds.map(d => d.id)
+    const maxAttempts = 60 // 90 seconds max
+    for (let i = 0; i < maxAttempts; i++) {
+      const result = await syncDocumentStatuses(ids)
+      if (result && result.isAllFinished) {
+        setSummary({ done: result.done, skipped: result.skipped, failed: result.failed })
+        setRunning(false)
+        return
       }
-    })
+      await new Promise(resolve => setTimeout(resolve, 1500))
+    }
 
-    await Promise.all(promises)
-
-    setSummary({ done, skipped, failed })
+    const finalResult = await syncDocumentStatuses(ids)
+    if (finalResult) {
+      setSummary({ done: finalResult.done, skipped: finalResult.skipped, failed: finalResult.failed })
+    }
     setRunning(false)
-  }, [])
+  }, [syncDocumentStatuses])
 
   const retry = useCallback((failedDocs: DocProgress[]) => {
     const toRetry = failedDocs
       .filter(d => d.status === 'failed' || d.status === 'skipped')
       .map(d => ({ id: d.id, filename: d.filename }))
-    if (toRetry.length > 0) runPipeline(toRetry)
+    if (toRetry.length > 0) void runPipeline(toRetry)
   }, [runPipeline])
 
-  return { progress, setProgress, running, summary, runPipeline, retry }
-}
-
-async function pollUntilProcessed(
-  docId: number,
-  onStatusUpdate: (status: DocProgress['status'], error?: string) => void
-): Promise<void> {
-  const maxAttempts = 120 // 4 minutes
-  for (let i = 0; i < maxAttempts; i++) {
-    const { data } = await api.get(`/documents/${docId}`)
-    
-    let uiStatus: DocProgress['status'] = 'waiting'
-    if (data.status === 'extracting') {
-      uiStatus = 'extracting'
-    } else if (data.status === 'extracted') {
-      uiStatus = 'chunking'
-    } else if (data.status === 'chunked' || data.status === 'embedding') {
-      uiStatus = 'embedding'
-    } else if (data.status === 'embedded') {
-      uiStatus = 'done'
-      onStatusUpdate(uiStatus)
-      return
-    } else if (data.status === 'failed') {
-      uiStatus = 'failed'
-      onStatusUpdate(uiStatus, data.extraction_error ?? 'Processing failed')
-      throw new Error(data.extraction_error ?? 'Processing failed')
-    }
-    
-    onStatusUpdate(uiStatus)
-    await sleep(2000)
-  }
-  throw new Error('Processing timed out')
-}
-
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
+  return { progress, setProgress, running, summary, setSummary, runPipeline, retry, syncDocumentStatuses }
 }
