@@ -8,12 +8,13 @@ export type DocProgress = {
   error?: string
 }
 
-function mapStatus(backendStatus: string): DocProgress['status'] {
-  if (backendStatus === 'embedded') return 'done'
-  if (backendStatus === 'failed') return 'failed'
-  if (backendStatus === 'extracting') return 'extracting'
-  if (backendStatus === 'extracted' || backendStatus === 'chunking') return 'chunking'
-  if (backendStatus === 'chunked' || backendStatus === 'embedding') return 'embedding'
+function mapStatus(backendStatus: any): DocProgress['status'] {
+  const s = String(backendStatus?.value ?? backendStatus ?? '').toLowerCase()
+  if (s.includes('embedded') || s === 'done') return 'done'
+  if (s.includes('fail')) return 'failed'
+  if (s.includes('extracting')) return 'extracting'
+  if (s.includes('extracted') || s.includes('chunking')) return 'chunking'
+  if (s.includes('chunked') || s.includes('embedding')) return 'embedding'
   return 'waiting'
 }
 
@@ -53,11 +54,21 @@ export function usePipeline() {
       })
 
       const allDocs = Array.from(docMap.values())
-      const relevant = targetDocIds ? allDocs.filter(d => targetDocIds.includes(d.id)) : allDocs
-      const isAllFinished = relevant.every(d => d.status === 'embedded' || d.status === 'failed')
+      const relevant = targetDocIds && targetDocIds.length > 0 ? allDocs.filter(d => targetDocIds.includes(d.id)) : allDocs
+      const isAllFinished = relevant.every(d => {
+        const s = String(d.status?.value ?? d.status ?? '').toLowerCase()
+        return s.includes('embedded') || s.includes('fail')
+      })
 
-      const finalDone = relevant.filter(d => d.status === 'embedded').length
-      const finalFailed = relevant.filter(d => d.status === 'failed').length
+      const finalDone = relevant.filter(d => {
+        const s = String(d.status?.value ?? d.status ?? '').toLowerCase()
+        return s.includes('embedded')
+      }).length
+
+      const finalFailed = relevant.filter(d => {
+        const s = String(d.status?.value ?? d.status ?? '').toLowerCase()
+        return s.includes('fail')
+      }).length
 
       return { isAllFinished, done: finalDone, skipped: 0, failed: finalFailed }
     } catch (e) {
@@ -69,8 +80,16 @@ export function usePipeline() {
   const runPipeline = useCallback(async (docIds: { id: number; filename: string }[]) => {
     setRunning(true)
     setSummary(null)
-    const initial: DocProgress[] = docIds.map(d => ({ ...d, status: 'waiting' }))
-    setProgress(initial)
+
+    const ids = docIds.map(d => d.id)
+
+    // Immediate status check before triggering
+    const initSync = await syncDocumentStatuses(ids)
+    if (initSync && initSync.isAllFinished) {
+      setSummary({ done: initSync.done, skipped: initSync.skipped, failed: initSync.failed })
+      setRunning(false)
+      return
+    }
 
     // Trigger backend processing for all pending files
     try {
@@ -79,7 +98,6 @@ export function usePipeline() {
       console.error('Failed to trigger process-all:', e)
     }
 
-    const ids = docIds.map(d => d.id)
     const maxAttempts = 60 // 90 seconds max
     for (let i = 0; i < maxAttempts; i++) {
       const result = await syncDocumentStatuses(ids)

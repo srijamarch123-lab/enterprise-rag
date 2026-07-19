@@ -34,8 +34,8 @@ export default function DocumentsPage() {
 
   const counts = {
     total: docs.length,
-    embedded: docs.filter((d: any) => d.status === 'embedded').length,
-    failed: docs.filter((d: any) => d.status === 'failed').length,
+    embedded: docs.filter((d: any) => String(d.status || '').toLowerCase().includes('embed')).length,
+    failed: docs.filter((d: any) => String(d.status || '').toLowerCase().includes('fail')).length,
   }
 
   return (

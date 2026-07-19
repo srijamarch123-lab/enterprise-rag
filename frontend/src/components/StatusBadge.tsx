@@ -11,7 +11,8 @@ const colors: Record<string, { bg: string; color: string }> = {
 }
 
 export default function StatusBadge({ status }: { status: string }) {
-  const s = colors[status] ?? { bg: '#f1efe8', color: '#5F5E5A' }
+  const key = String(status || '').toLowerCase().replace('documentstatus.', '')
+  const s = colors[key] ?? { bg: '#f1efe8', color: '#5F5E5A' }
   return (
     <span style={{
       display: 'inline-flex',
@@ -24,7 +25,7 @@ export default function StatusBadge({ status }: { status: string }) {
       color: s.color,
       textTransform: 'capitalize',
     }}>
-      {status}
+      {key}
     </span>
   )
 }
