@@ -267,9 +267,14 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
 
   const handleFeedbackSubmit = async () => {
     if (!feedbackMsgId || feedbackHelpful === null) return
+    const numId = Number(feedbackMsgId)
+    if (isNaN(numId)) {
+      console.warn('Cannot submit feedback for non-numeric message ID:', feedbackMsgId)
+      return
+    }
     setFeedbackLoading(true)
     try {
-      await submitFeedback(Number(feedbackMsgId), feedbackHelpful, feedbackComment)
+      await submitFeedback(numId, feedbackHelpful, feedbackComment)
       setConversations((prev) => prev.map((c) => ({ ...c, messages: c.messages.map((msg) => msg.id === feedbackMsgId ? { ...msg, feedbackSubmitted: feedbackHelpful ? 'up' : 'down' } : msg) })))
       setFeedbackMsgId(null)
       setFeedbackHelpful(null)

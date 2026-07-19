@@ -21,6 +21,8 @@ from app.routes.process_all import router as process_all_router
 from app.routes.extract import router as extract_router
 from app.routes.chat_sessions import router as chat_sessions_router
 from app.routes.feedback import router as feedback_router
+from app.routes.personal import router as personal_router
+from app.routes.personal_drive import router as personal_drive_router
 
 settings = get_settings()
 
@@ -76,6 +78,8 @@ app.include_router(process_all_router)
 app.include_router(extract_router)
 app.include_router(chat_sessions_router)
 app.include_router(feedback_router)
+app.include_router(personal_router)
+app.include_router(personal_drive_router)
 
 
 
