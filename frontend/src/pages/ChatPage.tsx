@@ -4,7 +4,7 @@ import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, T
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import api, { logout, submitFeedback, extractFileText } from '../services/api'
-import { theme } from '../theme'
+import { lightTheme, darkTheme } from '../theme'
 import './ChatPage.css'
 
 const { color, font, radius } = theme
@@ -59,6 +59,10 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const [groupBy, setGroupBy] = useState<'none' | 'date'>('none')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [isDark, setIsDark] = useState(false)
+  const color = (isDark ? darkTheme : lightTheme).color
+  const radius = (isDark ? darkTheme : lightTheme).radius
+  const font = (isDark ? darkTheme : lightTheme).font
 
   // Feedback
   const [feedbackMsgId, setFeedbackMsgId] = useState<number | string | null>(null)
@@ -391,7 +395,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   }
 
   return (
-    <div className="chat-page-root">
+    <div className="chat-page-root" style={{ background: color.bg, color: color.textPrimary, fontFamily: font }}>
       <aside className="chat-page-sidebar" style={{ width: sidebarOpen ? undefined : "0", overflow: sidebarOpen ? undefined : "hidden", minWidth: sidebarOpen ? undefined : "0", borderRight: sidebarOpen ? undefined : "none", transition: "width 0.2s, min-width 0.2s" }}>
         {/* Header */}
         <div style={{ padding: '16px 14px 10px', borderBottom: `1px solid ${color.border}` }}>
@@ -495,6 +499,12 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
           </div>
         )}
 
+        {/* Dark mode toggle */}
+        <button onClick={() => setIsDark(d => !d)}
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          style={{ position: 'fixed', top: '12px', right: '16px', zIndex: 100, background: isDark ? '#2a2a2a' : 'white', border: `1px solid ${color.border}`, borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', color: color.textSecondary, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
+          {isDark ? '?? Light' : '?? Dark'}
+        </button>
         {/* Sidebar toggle button */}
         <button onClick={() => setSidebarOpen(o => !o)}
           style={{ position: 'fixed', top: '12px', left: sidebarOpen ? '252px' : '12px', zIndex: 100, background: 'white', border: `1px solid ${color.border}`, borderRadius: '6px', padding: '5px', cursor: 'pointer', color: color.textSecondary, transition: 'left 0.2s', display: 'flex', alignItems: 'center' }}>
