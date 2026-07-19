@@ -166,9 +166,6 @@ def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Sessi
 
 @router.post("/import-all")
 def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    results = []
-    
-    # Save credentials to settings.google_credentials_path
     if req.files:
         try:
             import json
@@ -177,13 +174,14 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
         except Exception as e:
             raise HTTPException(500, f"Failed to save credentials: {e}")
 
-    for f in req.files:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def process_file_import(f):
         existing = db.query(Document).filter(
             Document.original_filename == f["name"]
         ).first()
         if existing:
-            results.append({"id": existing.id, "filename": f["name"], "skipped": True})
-            continue
+            return {"id": existing.id, "filename": f["name"], "skipped": True}
         try:
             saved_name, dest, size = _download_and_save(req.credentials_json, f)
             doc = Document(
@@ -198,10 +196,13 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
             db.add(doc)
             db.commit()
             db.refresh(doc)
-            results.append({"id": doc.id, "filename": f["name"], "skipped": False})
+            return {"id": doc.id, "filename": f["name"], "skipped": False}
         except Exception as e:
-            results.append({"filename": f["name"], "error": str(e)})
-    
+            return {"filename": f["name"], "error": str(e)}
+
+    with ThreadPoolExecutor(max_workers=min(10, len(req.files) or 1)) as executor:
+        results = list(executor.map(process_file_import, req.files))
+
     # Auto-process all newly imported documents via background task
     background_tasks.add_task(_run_process_all)
     return results
