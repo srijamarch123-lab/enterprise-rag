@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown, HardDrive, Upload, X, MoreHorizontal, Pencil, Trash2, Search, PanelLeftClose, PanelLeftOpen, Square } from 'lucide-react'
+import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown, HardDrive, Upload, X, MoreHorizontal, Pencil, Trash2, Search, PanelLeftClose, PanelLeftOpen, Square, Sun, Moon } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import api, { logout, submitFeedback, extractFileText } from '../services/api'
@@ -59,7 +59,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const [groupBy, setGroupBy] = useState<'none' | 'date'>('none')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [isDark, setIsDark] = useState(false)
+  const [isDark, setIsDark] = useState(() => localStorage.getItem('darkMode') === 'true')
   const color = (isDark ? darkTheme : lightTheme).color
   const radius = (isDark ? darkTheme : lightTheme).radius
   const font = (isDark ? darkTheme : lightTheme).font
@@ -396,93 +396,145 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
 
   return (
     <div className="chat-page-root" style={{ background: color.bg, color: color.textPrimary, fontFamily: font }}>
-      <aside className="chat-page-sidebar" style={{ width: sidebarOpen ? undefined : "0", overflow: sidebarOpen ? undefined : "hidden", minWidth: sidebarOpen ? undefined : "0", borderRight: sidebarOpen ? undefined : "none", transition: "width 0.2s, min-width 0.2s" }}>
-        {/* Header */}
-        <div style={{ padding: '16px 14px 10px', borderBottom: `1px solid ${color.border}` }}>
-          <div style={{ fontSize: '14px', fontWeight: 700, color: color.chatAccent, marginBottom: '10px' }}>Enterprise RAG</div>
-          <button onClick={handleNewChat} className="chat-page-button chat-page-button-primary" style={{ width: '100%', justifyContent: 'center' }}>
+      <aside className="chat-page-sidebar" style={{
+        width: sidebarOpen ? '260px' : '0',
+        minWidth: sidebarOpen ? '260px' : '0',
+        overflow: 'hidden',
+        transition: 'width 0.2s ease, min-width 0.2s ease',
+        background: isDark ? '#1a1a1a' : '#f0f4f0',
+        borderRight: `1px solid ${isDark ? '#2e2e2e' : '#d0dbd0'}`,
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        flexShrink: 0,
+      }}>
+        {/* Top: Dashboard link (admin only) */}
+        {isAdmin && (
+          <button onClick={() => navigate('/documents')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '14px 16px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', fontWeight: 500, color: isDark ? '#6E9163' : '#4a7a5a', width: '100%', textAlign: 'left', borderBottom: `1px solid ${isDark ? '#2e2e2e' : '#d0dbd0'}` }}>
+            <ArrowLeft size={14} /> Back to Dashboard
+          </button>
+        )}
+
+        {/* Enterprise RAG title */}
+        <div style={{ padding: '14px 16px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '15px', fontWeight: 700, color: isDark ? '#6E9163' : '#3a6b3a', letterSpacing: '-0.02em' }}>Enterprise RAG</span>
+          <button onClick={() => setSidebarOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: isDark ? '#666' : '#999', padding: '2px', display: 'flex', alignItems: 'center' }} title="Close sidebar">
+            <PanelLeftClose size={16} />
+          </button>
+        </div>
+
+        {/* New chat button */}
+        <div style={{ padding: '0 12px 10px' }}>
+          <button onClick={handleNewChat}
+            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '9px', borderRadius: '8px', border: `1px solid ${isDark ? '#3a3a3a' : '#c0d0c0'}`, background: isDark ? '#252525' : 'white', color: isDark ? '#e0e0e0' : '#2a2a2a', fontSize: '13px', fontWeight: 500, cursor: 'pointer' }}>
             <Plus size={15} /> New chat
           </button>
         </div>
 
         {/* Search */}
-        <div style={{ padding: '10px 12px 4px' }}>
+        <div style={{ padding: '0 12px 8px' }}>
           <div style={{ position: 'relative' }}>
-            <Search size={13} style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', color: color.textTertiary, pointerEvents: 'none' }} />
+            <Search size={13} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: isDark ? '#666' : '#888', pointerEvents: 'none' }} />
             <input type="text" placeholder="Search chats..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-              style={{ width: '100%', padding: '6px 8px 6px 28px', fontSize: '12px', border: `1px solid ${color.border}`, borderRadius: '6px', background: '#f9f7f4', color: color.textPrimary, outline: 'none', boxSizing: 'border-box' }} />
+              style={{ width: '100%', padding: '7px 8px 7px 30px', fontSize: '12px', border: `1px solid ${isDark ? '#3a3a3a' : '#c0d0c0'}`, borderRadius: '7px', background: isDark ? '#252525' : 'white', color: isDark ? '#e0e0e0' : '#2a2a2a', outline: 'none', boxSizing: 'border-box' }} />
           </div>
         </div>
 
         {/* Group by */}
-        <div style={{ padding: '6px 14px 8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span style={{ fontSize: '11px', color: color.textTertiary }}>Group by:</span>
-          <button onClick={() => setGroupBy('none')} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '20px', border: `1px solid ${groupBy === 'none' ? color.chatAccent : color.border}`, background: groupBy === 'none' ? color.chatAccentSoft : 'transparent', color: groupBy === 'none' ? color.chatAccent : color.textSecondary, cursor: 'pointer' }}>None</button>
-          <button onClick={() => setGroupBy('date')} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '20px', border: `1px solid ${groupBy === 'date' ? color.chatAccent : color.border}`, background: groupBy === 'date' ? color.chatAccentSoft : 'transparent', color: groupBy === 'date' ? color.chatAccent : color.textSecondary, cursor: 'pointer' }}>Date</button>
+        <div style={{ padding: '0 12px 8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span style={{ fontSize: '11px', color: isDark ? '#666' : '#888' }}>Group by:</span>
+          {(['none', 'date'] as const).map(g => (
+            <button key={g} onClick={() => setGroupBy(g)}
+              style={{ fontSize: '11px', padding: '3px 10px', borderRadius: '20px', border: `1px solid ${groupBy === g ? '#6E9163' : (isDark ? '#3a3a3a' : '#c0d0c0')}`, background: groupBy === g ? '#6E9163' : 'transparent', color: groupBy === g ? 'white' : (isDark ? '#999' : '#666'), cursor: 'pointer', textTransform: 'capitalize' }}>
+              {g === 'none' ? 'None' : 'Date'}
+            </button>
+          ))}
         </div>
 
-        {isAdmin && (
-          <button onClick={() => navigate('/documents')} className="chat-page-sidebar-link" style={{ margin: '0 8px 4px', borderRadius: '6px' }}>
-            <ArrowLeft size={14} /> Dashboard
-          </button>
-        )}
-
         {/* Chat list */}
-        <div className="chat-page-sidebar-list">
+        <div style={{ flex: 1, overflowY: 'auto', padding: '4px 8px' }}>
           {filteredConversations.length === 0 && searchQuery && (
-            <div style={{ fontSize: '12px', color: color.textTertiary, textAlign: 'center', padding: '20px 0' }}>No chats found</div>
+            <div style={{ fontSize: '12px', color: isDark ? '#666' : '#999', textAlign: 'center', padding: '20px 0' }}>No chats found</div>
           )}
           {groupBy === 'none' ? filteredConversations.map((c) => (
-            <div key={c.id} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <button
-                onClick={() => { setActiveId(c.id); void loadSessionMessages(c.id) }}
-                className={`chat-page-chat-item ${c.id === activeId ? 'active' : ''}`}
-                style={{ flex: 1, overflow: 'hidden' }}
-              >
-                <MessageSquare size={14} />
-                <span className="chat-page-chat-title">{c.title}</span>
+            <div key={c.id} style={{ position: 'relative', display: 'flex', alignItems: 'center', borderRadius: '7px', marginBottom: '2px', background: c.id === activeId ? (isDark ? '#2e2e2e' : '#dceadc') : 'transparent' }}
+              onMouseEnter={e => { const btn = e.currentTarget.querySelector('.dots-btn') as HTMLElement; if (btn) btn.style.opacity = '1' }}
+              onMouseLeave={e => { const btn = e.currentTarget.querySelector('.dots-btn') as HTMLElement; if (btn && menuOpenId !== c.id) btn.style.opacity = '0' }}>
+              <button onClick={() => { setActiveId(c.id); void loadSessionMessages(c.id) }}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', overflow: 'hidden', color: c.id === activeId ? (isDark ? '#e0e0e0' : '#1a3a1a') : (isDark ? '#b0b0b0' : '#3a3a3a'), fontSize: '13px' }}>
+                <MessageSquare size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
               </button>
-              <button onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === c.id ? null : c.id) }}
-                style={{ position: 'absolute', right: '4px', background: 'transparent', border: 'none', cursor: 'pointer', padding: '4px', color: color.textTertiary, opacity: menuOpenId === c.id || c.id === activeId ? 1 : 0, transition: 'opacity 0.1s' }}
-                onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                onMouseLeave={e => { if (menuOpenId !== c.id && c.id !== activeId) e.currentTarget.style.opacity = '0' }}
-              >
+              <button className="dots-btn" onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === c.id ? null : c.id) }}
+                style={{ opacity: c.id === activeId ? 1 : 0, transition: 'opacity 0.1s', padding: '6px 6px', border: 'none', background: 'transparent', cursor: 'pointer', color: isDark ? '#888' : '#666', flexShrink: 0 }}>
                 <MoreHorizontal size={14} />
               </button>
               {menuOpenId === c.id && (
-                <div style={{ position: 'absolute', right: '4px', top: '100%', background: 'white', border: `1px solid ${color.border}`, borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 50, minWidth: '160px', padding: '4px' }}>
+                <div style={{ position: 'absolute', right: '4px', top: '100%', background: isDark ? '#2a2a2a' : 'white', border: `1px solid ${isDark ? '#3a3a3a' : '#d0d0d0'}`, borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '150px', padding: '4px' }} onClick={e => e.stopPropagation()}>
                   <button onClick={() => { const t = prompt('Rename chat:', c.title); if (t) handleRename(c.id, t); setMenuOpenId(null) }}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: color.textPrimary, borderRadius: '6px' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f5f3ef'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  ><Pencil size={13} /> Rename</button>
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: isDark ? '#e0e0e0' : '#2a2a2a', borderRadius: '6px' }}
+                    onMouseEnter={e => e.currentTarget.style.background = isDark ? '#333' : '#f5f5f5'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <Pencil size={13} /> Rename
+                  </button>
                   <button onClick={() => { handleDelete(c.id); setMenuOpenId(null) }}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: '#c00', borderRadius: '6px' }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#fff0f0'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  ><Trash2 size={13} /> Delete</button>
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: '#e05050', borderRadius: '6px' }}
+                    onMouseEnter={e => e.currentTarget.style.background = isDark ? '#2e1a1a' : '#fff0f0'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <Trash2 size={13} /> Delete
+                  </button>
                 </div>
               )}
             </div>
           )) : Object.entries(groupedConversations).map(([group, chats]) => (
             <div key={group}>
-              <div style={{ fontSize: '10px', fontWeight: 600, color: color.textTertiary, textTransform: 'uppercase', letterSpacing: '0.05em', padding: '8px 10px 4px' }}>{group}</div>
+              <div style={{ fontSize: '10px', fontWeight: 600, color: isDark ? '#555' : '#999', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '8px 10px 4px' }}>{group}</div>
               {(chats as Conversation[]).map((c) => (
-                <div key={c.id} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <div key={c.id} style={{ position: 'relative', display: 'flex', alignItems: 'center', borderRadius: '7px', marginBottom: '2px', background: c.id === activeId ? (isDark ? '#2e2e2e' : '#dceadc') : 'transparent' }}
+                  onMouseEnter={e => { const btn = e.currentTarget.querySelector('.dots-btn') as HTMLElement; if (btn) btn.style.opacity = '1' }}
+                  onMouseLeave={e => { const btn = e.currentTarget.querySelector('.dots-btn') as HTMLElement; if (btn && menuOpenId !== c.id) btn.style.opacity = '0' }}>
                   <button onClick={() => { setActiveId(c.id); void loadSessionMessages(c.id) }}
-                    className={`chat-page-chat-item ${c.id === activeId ? 'active' : ''}`} style={{ flex: 1 }}>
-                    <MessageSquare size={14} />
-                    <span className="chat-page-chat-title">{c.title}</span>
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', overflow: 'hidden', color: c.id === activeId ? (isDark ? '#e0e0e0' : '#1a3a1a') : (isDark ? '#b0b0b0' : '#3a3a3a'), fontSize: '13px' }}>
+                    <MessageSquare size={13} style={{ flexShrink: 0, opacity: 0.6 }} />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.title}</span>
                   </button>
+                  <button className="dots-btn" onClick={(e) => { e.stopPropagation(); setMenuOpenId(menuOpenId === c.id ? null : c.id) }}
+                    style={{ opacity: c.id === activeId ? 1 : 0, transition: 'opacity 0.1s', padding: '6px 6px', border: 'none', background: 'transparent', cursor: 'pointer', color: isDark ? '#888' : '#666', flexShrink: 0 }}>
+                    <MoreHorizontal size={14} />
+                  </button>
+                  {menuOpenId === c.id && (
+                    <div style={{ position: 'absolute', right: '4px', top: '100%', background: isDark ? '#2a2a2a' : 'white', border: `1px solid ${isDark ? '#3a3a3a' : '#d0d0d0'}`, borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.15)', zIndex: 50, minWidth: '150px', padding: '4px' }} onClick={e => e.stopPropagation()}>
+                      <button onClick={() => { const t = prompt('Rename chat:', c.title); if (t) handleRename(c.id, t); setMenuOpenId(null) }}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: isDark ? '#e0e0e0' : '#2a2a2a', borderRadius: '6px' }}
+                        onMouseEnter={e => e.currentTarget.style.background = isDark ? '#333' : '#f5f5f5'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <Pencil size={13} /> Rename
+                      </button>
+                      <button onClick={() => { handleDelete(c.id); setMenuOpenId(null) }}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: '#e05050', borderRadius: '6px' }}
+                        onMouseEnter={e => e.currentTarget.style.background = isDark ? '#2e1a1a' : '#fff0f0'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                        <Trash2 size={13} /> Delete
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           ))}
         </div>
 
-        <div className="chat-page-sidebar-footer">
-          <button onClick={handleLogout} className="chat-page-sidebar-link" aria-label="Log out">
-            <LogOut size={15} strokeWidth={2} /> Log out
+        {/* Footer: dark mode toggle + logout */}
+        <div style={{ padding: '10px 12px', borderTop: `1px solid ${isDark ? '#2e2e2e' : '#d0dbd0'}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <button onClick={() => { const newDark = !isDark; setIsDark(newDark); localStorage.setItem('darkMode', String(newDark)) }}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: `1px solid ${isDark ? '#3a3a3a' : '#c0d0c0'}`, borderRadius: '7px', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: isDark ? '#b0b0b0' : '#555', width: '100%' }}>
+            {isDark ? <Sun size={14} /> : <Moon size={14} />}
+            {isDark ? 'Light mode' : 'Dark mode'}
+          </button>
+          <button onClick={handleLogout}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: isDark ? '#888' : '#666', width: '100%' }}>
+            <LogOut size={14} /> Log out
           </button>
         </div>
       </aside>
@@ -499,17 +551,15 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
           </div>
         )}
 
-        {/* Dark mode toggle */}
-        <button onClick={() => setIsDark(d => !d)}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          style={{ position: 'fixed', top: '12px', right: '16px', zIndex: 100, background: isDark ? '#2a2a2a' : 'white', border: `1px solid ${color.border}`, borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', color: color.textSecondary, display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' }}>
-          {isDark ? '?? Light' : '?? Dark'}
-        </button>
-        {/* Sidebar toggle button */}
-        <button onClick={() => setSidebarOpen(o => !o)}
-          style={{ position: 'fixed', top: '12px', left: sidebarOpen ? '252px' : '12px', zIndex: 100, background: 'white', border: `1px solid ${color.border}`, borderRadius: '6px', padding: '5px', cursor: 'pointer', color: color.textSecondary, transition: 'left 0.2s', display: 'flex', alignItems: 'center' }}>
-          {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
-        </button>
+
+
+        {/* Sidebar toggle in top left of main area */}
+        {!sidebarOpen && (
+          <button onClick={() => setSidebarOpen(true)}
+            style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, background: isDark ? '#2a2a2a' : 'white', border: `1px solid ${isDark ? '#3a3a3a' : '#d0d0d0'}`, borderRadius: '7px', padding: '6px 8px', cursor: 'pointer', color: isDark ? '#b0b0b0' : '#555', display: 'flex', alignItems: 'center' }}>
+            <PanelLeftOpen size={16} />
+          </button>
+        )}
         <div className="chat-page-content-wrap">
           <div className="chat-page-content">
             {active.messages.length === 0 && (
