@@ -524,3 +524,23 @@
 .dark-answer a {
   color: #6E9163 !important;
 }
+
+/* Fix white scrollbar track in dark mode */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
