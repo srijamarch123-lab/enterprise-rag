@@ -101,7 +101,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    return {"id": user.id, "email": user.email, "role": user.role}
+    return {"id": user.id, "email": user.email, "role": user.role.value if hasattr(user.role, "value") else str(user.role)}
 
 
 def login(
@@ -136,7 +136,8 @@ def login(
             )
             raise HTTPException(403, "Account disabled")
 
-        payload = {"sub": str(user.id), "role": user.role, "tv": user.token_version}
+        role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+        payload = {"sub": str(user.id), "role": role_str, "tv": user.token_version}
         access_token = create_access_token(payload)
         refresh_token = create_refresh_token(payload)
 
@@ -150,9 +151,9 @@ def login(
 
         user.last_login = datetime.utcnow()
         db.commit()
-        _log(db, user.id, "login", ip_address=client_ip, details={"email": user.email, "role": str(user.role)})
+        _log(db, user.id, "login", ip_address=client_ip, details={"email": user.email, "role": role_str})
 
-        return {"role": user.role, "message": "Logged in"}
+        return {"role": role_str, "message": "Logged in"}
 
     except HTTPException:
         raise  # Re-raise HTTP exceptions (401, 403, etc.)
@@ -235,7 +236,8 @@ def refresh(
     if not user or not user.is_active:
         raise HTTPException(401, "User not found")
 
-    new_payload = {"sub": str(user.id), "role": user.role, "tv": user.token_version}
+    role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+    new_payload = {"sub": str(user.id), "role": role_str, "tv": user.token_version}
     access_token = create_access_token(new_payload)
 
     access_max_age = 60 * get_settings().jwt_access_token_expire_minutes
@@ -251,7 +253,7 @@ def me(current_user: User = Depends(get_current_user)):
         "id": current_user.id,
         "email": current_user.email,
         "full_name": current_user.full_name,
-        "role": current_user.role,
+        "role": current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role),
         "department": current_user.department,
         "last_login": current_user.last_login,
     }
