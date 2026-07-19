@@ -33,3 +33,5 @@ Thumbs.db
 # fastembed cache
 fastembed_cache/
 backend/fastembed_cache/
+
+venvsource/

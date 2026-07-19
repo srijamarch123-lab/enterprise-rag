@@ -657,7 +657,8 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
             <div style={{ fontSize: '12px', color: color.textTertiary, marginBottom: '12px' }}>
               Paste your service account credentials JSON. This connection is only for this chat session.
             </div>
-            <textarea value={driveJson} onChange={e => setDriveJson(e.target.value)} placeholder='{ "type": "service_account", ... }' rows={8} style={{ width: '100%', border: `1px solid ${color.border}`, borderRadius: radius.sm, padding: '10px', fontSize: '12px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
+            <input type="file" accept=".json" onChange={e => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => setDriveJson(ev.target?.result as string); reader.readAsText(file); }} style={{ width: '100%', padding: '10px', border: `1px solid ${color.border}`, borderRadius: radius.sm, fontSize: '13px', cursor: 'pointer' }} />
+            {driveJson && <div style={{ fontSize: '11px', color: color.chatAccent, marginTop: '4px' }}>JSON file loaded successfully</div>}
             {driveError && <div style={{ color: color.danger, fontSize: '12px', marginTop: '6px' }}>{driveError}</div>}
             <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowDriveModal(false)} style={{ padding: '8px 16px', border: `1px solid ${color.border}`, borderRadius: radius.sm, background: 'white', fontSize: '13px', cursor: 'pointer', color: color.textSecondary }}>Cancel</button>
