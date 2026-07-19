@@ -278,7 +278,9 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
       }
     } finally {
-      setLoading(false)      abortControllerRef  }
+      setLoading(false)
+      abortControllerRef.current = null
+    }
   }
 
   const handleStopGeneration = () => {
