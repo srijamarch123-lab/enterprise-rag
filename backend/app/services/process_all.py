@@ -160,7 +160,7 @@ def process_all_documents(db: Session) -> dict:
         finally:
             thread_db.close()
 
-    max_workers = 10
+    max_workers = 16
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(_process_one, doc_id): doc_id for doc_id in doc_ids}
         for future in as_completed(futures):
