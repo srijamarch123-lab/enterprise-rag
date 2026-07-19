@@ -3,6 +3,7 @@ import { Shield, UserX, UserCheck, Search, Users, LogIn, AlertTriangle, Clock, E
 import api, { getUsers, getStats, getLoginActivity, updateRole, disableUser, enableUser } from "../services/api"
 import { useState } from "react"
 import { User } from "../types"
+import { useTheme } from "../ThemeContext"
 
 const ROLES = ["admin", "hr", "manager", "employee"]
 
@@ -20,6 +21,8 @@ const ACTION_COLORS: Record<string, { bg: string; color: string }> = {
 }
 
 export default function UsersPage() {
+  const { theme, isDark } = useTheme()
+  const { color, font, radius } = theme
   const qc = useQueryClient()
   const [search, setSearch] = useState("")
   const [activeTab, setActiveTab] = useState<'users' | 'logs'>('users')

@@ -26,6 +26,15 @@ def get_embedder() -> TextEmbedding:
     return _embedder
 
 
+_inference_lock = threading.Lock()
+
+
+def safe_embed_texts(texts: list[str]):
+    embedder = get_embedder()
+    with _inference_lock:
+        return list(embedder.embed(texts))
+
+
 def embed_query(query: str) -> list[float]:
     if not query or not isinstance(query, str) or not query.strip():
         return []
@@ -44,8 +53,7 @@ def embed_query(query: str) -> list[float]:
     except Exception:
         pass
 
-    embedder = get_embedder()
-    vectors = list(embedder.embed([query]))
+    vectors = safe_embed_texts([query])
     if not vectors:
         return []
     result = vectors[0].tolist()

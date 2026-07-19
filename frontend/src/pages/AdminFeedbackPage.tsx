@@ -1,9 +1,7 @@
 import { useState, useEffect } from 'react'
 import { MessageSquare, ThumbsUp, ThumbsDown, Filter, CheckCircle, RefreshCw, AlertCircle, FileText } from 'lucide-react'
 import { getAdminFeedback, resolveFeedback, getFeedbackAnalytics } from '../services/api'
-import { theme } from '../theme'
-
-const { color, font, radius } = theme
+import { useTheme } from '../ThemeContext'
 
 interface FeedbackItem {
   id: number
@@ -37,6 +35,8 @@ interface Analytics {
 }
 
 export default function AdminFeedbackPage() {
+  const { theme, isDark } = useTheme()
+  const { color, font, radius } = theme
   const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([])
   const [analytics, setAnalytics] = useState<Analytics>({
     upvotes: 0,

@@ -1,5 +1,5 @@
 import { CheckCircle, XCircle, Loader, Clock, RefreshCw } from 'lucide-react'
-import { usePipeline, DocProgress } from '../hooks/usePipeline'
+import { usePipeline, DocProgress, mapStatus } from '../hooks/usePipeline'
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { getDocuments } from '../services/api'
@@ -71,7 +71,7 @@ export default function ProcessingPage({ externalProgress, externalRunning, exte
             const mapped: DocProgress[] = docs.map((d: any) => ({
               id: d.id,
               filename: d.filename,
-              status: d.status === 'embedded' ? 'done' : d.status === 'failed' ? 'failed' : d.status === 'extracting' ? 'extracting' : d.status === 'extracted' || d.status === 'chunking' ? 'chunking' : d.status === 'chunked' || d.status === 'embedding' ? 'embedding' : 'waiting',
+              status: mapStatus(d.status),
               error: d.extraction_error || undefined,
             }))
             internal.setProgress(mapped)

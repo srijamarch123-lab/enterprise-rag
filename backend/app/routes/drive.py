@@ -175,14 +175,16 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
             raise HTTPException(500, f"Failed to save credentials: {e}")
 
     from concurrent.futures import ThreadPoolExecutor
+    from app.database import SessionLocal
 
     def process_file_import(f):
-        existing = db.query(Document).filter(
-            Document.original_filename == f["name"]
-        ).first()
-        if existing:
-            return {"id": existing.id, "filename": f["name"], "skipped": True}
+        thread_db = SessionLocal()
         try:
+            existing = thread_db.query(Document).filter(
+                Document.original_filename == f["name"]
+            ).first()
+            if existing:
+                return {"id": existing.id, "filename": f["name"], "skipped": True}
             saved_name, dest, size = _download_and_save(req.credentials_json, f)
             doc = Document(
                 filename=saved_name,
@@ -193,12 +195,15 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
                 source="drive",
                 drive_file_id=f["drive_file_id"],
             )
-            db.add(doc)
-            db.commit()
-            db.refresh(doc)
+            thread_db.add(doc)
+            thread_db.commit()
+            thread_db.refresh(doc)
             return {"id": doc.id, "filename": f["name"], "skipped": False}
         except Exception as e:
+            thread_db.rollback()
             return {"filename": f["name"], "error": str(e)}
+        finally:
+            thread_db.close()
 
     with ThreadPoolExecutor(max_workers=min(10, len(req.files) or 1)) as executor:
         results = list(executor.map(process_file_import, req.files))

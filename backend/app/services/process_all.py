@@ -4,7 +4,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.models import Document, DocumentStatus
+from app.models import Document, DocumentStatus, Chunk
 from app.services.chunker import chunk_document
 from app.services.embedder import embed_document
 from app.services.extractor import extract_text
@@ -89,12 +89,79 @@ def ensure_file_exists(doc: Document, db: Session):
         raise FileNotFoundError(f"File not found on disk: {normalized_path} (Manual upload file cannot be redownloaded)")
 
 
+def process_single_document_by_id(doc_id: int):
+    """Process a single document safely through extract, chunk, and embed stages."""
+    from app.database import SessionLocal
+    thread_db = SessionLocal()
+    try:
+        doc = thread_db.query(Document).filter(Document.id == doc_id).first()
+        if not doc:
+            return False, "Document not found"
+
+        # If already embedded and has chunks, skip
+        if doc.status == DocumentStatus.embedded:
+            chunk_count = thread_db.query(Chunk).filter(Chunk.document_id == doc_id).count()
+            if chunk_count > 0:
+                return True, "already_embedded"
+
+        # 1) extraction
+        if _should_extract(doc):
+            doc.status = DocumentStatus.extracting
+            doc.extraction_error = None
+            thread_db.commit()
+
+            ensure_file_exists(doc, thread_db)
+
+            text, pages = extract_text(doc.file_path, doc.file_type)
+            if not text or not text.strip():
+                raise ValueError("No text content could be extracted from document")
+
+            doc.extracted_text = text
+            doc.page_count = pages
+            doc.processed_at = datetime.utcnow()
+            doc.status = DocumentStatus.extracted
+            thread_db.commit()
+
+        # 2) chunking
+        doc = thread_db.query(Document).filter(Document.id == doc_id).first()
+        if not doc or not doc.extracted_text:
+            if doc and (doc.filename.startswith("test_") or "/tmp/" in (doc.file_path or "")):
+                return False, "test_file"
+            raise ValueError("Document has no extracted text; cannot chunk")
+
+        existing_chunks = thread_db.query(Chunk).filter(Chunk.document_id == doc_id).count()
+        if existing_chunks == 0 or doc.status in (DocumentStatus.extracted, DocumentStatus.pending, DocumentStatus.extracting):
+            doc.status = DocumentStatus.chunking
+            thread_db.commit()
+            chunk_document(doc, thread_db)
+
+        # 3) embedding
+        doc = thread_db.query(Document).filter(Document.id == doc_id).first()
+        if doc and doc.status != DocumentStatus.embedded:
+            doc.status = DocumentStatus.embedding
+            thread_db.commit()
+            embed_document(doc, thread_db)
+
+        return True, "processed"
+    except Exception as e:
+        try:
+            doc = thread_db.query(Document).filter(Document.id == doc_id).first()
+            if doc:
+                doc.status = DocumentStatus.failed
+                doc.extraction_error = str(e)
+                thread_db.commit()
+        except Exception:
+            pass
+        raise e
+    finally:
+        thread_db.close()
+
+
 def process_all_documents(db: Session) -> dict:
     """End-to-end processing for all stored documents using a ThreadPoolExecutor
     to process documents in parallel safely with separate database sessions.
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from app.database import SessionLocal
 
     docs = db.query(Document).order_by(Document.id).all()
     doc_ids = [doc.id for doc in docs]
@@ -110,69 +177,20 @@ def process_all_documents(db: Session) -> dict:
         "skipped": 0,
     }
 
-    def _process_one(doc_id: int):
-        thread_db = SessionLocal()
-        extracted = False
-        try:
-            doc = thread_db.query(Document).filter(Document.id == doc_id).first()
-            if not doc:
-                return False, False
-
-            # 1) extraction
-            if _should_extract(doc):
-                doc.status = DocumentStatus.extracting
-                doc.extraction_error = None
-                thread_db.commit()
-
-                ensure_file_exists(doc, thread_db)
-
-                text, pages = extract_text(doc.file_path, doc.file_type)
-                doc.extracted_text = text
-                doc.page_count = pages
-                doc.processed_at = datetime.utcnow()
-                doc.status = DocumentStatus.extracted
-                thread_db.commit()
-                extracted = True
-
-            # 2) chunking
-            doc = thread_db.query(Document).filter(Document.id == doc_id).first()
-            if not doc or not doc.extracted_text:
-                if doc and (doc.filename.startswith("test_") or "/tmp/" in (doc.file_path or "")):
-                    return False, False
-                raise ValueError("Document has no extracted_text; cannot chunk")
-
-            chunk_document(doc, thread_db)
-
-            # 3) embedding
-            embed_document(doc, thread_db)
-
-            return True, extracted
-        except Exception as e:
-            try:
-                doc = thread_db.query(Document).filter(Document.id == doc_id).first()
-                if doc:
-                    doc.status = DocumentStatus.failed
-                    doc.extraction_error = str(e)
-                    thread_db.commit()
-            except Exception:
-                pass
-            raise e
-        finally:
-            thread_db.close()
-
-    max_workers = 16
+    max_workers = 4
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_process_one, doc_id): doc_id for doc_id in doc_ids}
+        futures = {executor.submit(process_single_document_by_id, doc_id): doc_id for doc_id in doc_ids}
         for future in as_completed(futures):
             doc_id = futures[future]
             try:
-                success, extracted = future.result()
+                success, reason = future.result()
                 if success:
-                    results["processed"] += 1
-                    results["chunked"] += 1
-                    results["embedded"] += 1
-                    if extracted:
-                        results["extracted"] += 1
+                    if reason == "already_embedded":
+                        results["skipped"] += 1
+                    else:
+                        results["processed"] += 1
+                        results["chunked"] += 1
+                        results["embedded"] += 1
             except Exception as e:
                 results["failed"] += 1
                 results["errors"][doc_id] = str(e)
@@ -183,13 +201,9 @@ def process_all_documents(db: Session) -> dict:
     return results
 
 
-
 def process_single_document(doc, db):
     """Process a single document: extract, chunk, embed."""
-    from app.services.process_all import process_all_documents
-    from app.models import DocumentStatus
     try:
-        # Just call process_all which handles pending docs
-        process_all_documents(db)
+        process_single_document_by_id(doc.id)
     except Exception as e:
-        print(f"Auto-process failed: {e}")
+        print(f"Auto-process failed for document {doc.id}: {e}")

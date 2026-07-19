@@ -75,38 +75,12 @@ def _save_file(file: UploadFile, ext: str) -> tuple[str, str, int, str]:
 
 
 def _run_extraction(doc_id: int):
-    from app.database import SessionLocal
-    db = SessionLocal()
+    from app.services.process_all import process_single_document_by_id
     try:
-        doc = db.query(Document).filter(Document.id == doc_id).first()
-        if not doc:
-            return
-        doc.status = DocumentStatus.extracting
-        db.commit()
-        text, pages = extract_text(doc.file_path, doc.file_type)
-        doc.extracted_text = text
-        doc.page_count = pages
-        doc.status = DocumentStatus.extracted
-        doc.processed_at = datetime.utcnow()
-        db.commit()
-        # Immediately chunk after successful extraction
-        chunk_document(doc, db)
-        # Immediately embed after successful chunking
-        from app.services.embedder import embed_document
-        embed_document(doc, db)
-        from app.services.redis_service import invalidate_rag_cache
-        invalidate_rag_cache()
+        process_single_document_by_id(doc_id)
     except Exception as e:
-        try:
-            doc = db.query(Document).filter(Document.id == doc_id).first()
-            if doc:
-                doc.status = DocumentStatus.failed
-                doc.extraction_error = str(e)
-                db.commit()
-        except Exception:
-            pass
-    finally:
-        db.close()
+        import logging
+        logging.getLogger(__name__).error(f"Failed background processing for doc {doc_id}: {e}")
 
 
 @router.post("/upload", status_code=201, dependencies=[Depends(require_manager_or_above)])

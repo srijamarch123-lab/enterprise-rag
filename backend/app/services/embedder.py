@@ -87,8 +87,9 @@ def embed_document(document: Document, db: Session) -> dict:
 
     # Try batching first
     try:
+        from app.services.query_embedder import safe_embed_texts
         texts = [chunk.text for chunk in chunks]
-        vectors = list(model.embed(texts))
+        vectors = safe_embed_texts(texts)
         
         points = []
         point_ids = []
@@ -131,10 +132,14 @@ def embed_document(document: Document, db: Session) -> dict:
     except Exception as batch_err:
         import logging
         logging.getLogger(__name__).warning("Batch embedding/upsert failed, falling back to chunk-by-chunk: %s", batch_err)
+        from app.services.query_embedder import safe_embed_texts
         # Fallback to chunk-by-chunk to isolate failures
         for chunk in chunks:
             try:
-                vector = next(model.embed([chunk.text]))
+                vectors = safe_embed_texts([chunk.text])
+                if not vectors:
+                    raise ValueError("Embedder returned empty vector")
+                vector = vectors[0]
                 point_id = str(uuid.uuid4())
                 point = PointStruct(
                     id=point_id,

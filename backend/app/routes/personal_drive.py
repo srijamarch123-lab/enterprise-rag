@@ -106,15 +106,17 @@ def import_all_personal(
     db: Session = Depends(get_db),
 ):
     from concurrent.futures import ThreadPoolExecutor
+    from app.database import SessionLocal
 
     def process_personal_import(f):
-        existing = db.query(Document).filter(
-            Document.original_filename == f["name"],
-            Document.owner_user_id == current_user.id,
-        ).first()
-        if existing:
-            return {"id": existing.id, "filename": f["name"], "skipped": True}
+        thread_db = SessionLocal()
         try:
+            existing = thread_db.query(Document).filter(
+                Document.original_filename == f["name"],
+                Document.owner_user_id == current_user.id,
+            ).first()
+            if existing:
+                return {"id": existing.id, "filename": f["name"], "skipped": True}
             saved_name, dest, size = _download_and_save(req.credentials_json, f)
             doc = Document(
                 filename=saved_name,
@@ -126,13 +128,16 @@ def import_all_personal(
                 drive_file_id=f["drive_file_id"],
                 owner_user_id=current_user.id,
             )
-            db.add(doc)
-            db.commit()
-            db.refresh(doc)
+            thread_db.add(doc)
+            thread_db.commit()
+            thread_db.refresh(doc)
             background_tasks.add_task(_run_extraction, doc.id)
             return {"id": doc.id, "filename": f["name"], "skipped": False}
         except Exception as e:
+            thread_db.rollback()
             return {"filename": f["name"], "error": str(e)}
+        finally:
+            thread_db.close()
 
     with ThreadPoolExecutor(max_workers=min(10, len(req.files) or 1)) as executor:
         results = list(executor.map(process_personal_import, req.files))

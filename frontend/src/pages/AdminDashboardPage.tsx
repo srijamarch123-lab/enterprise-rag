@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react'
 import { ClipboardList, ShieldAlert, Cpu, Users, Calendar, ArrowRight, RefreshCw, Activity, AlertTriangle } from 'lucide-react'
 import { getStats, getAuditMetrics, getMe } from '../services/api'
-import { theme } from '../theme'
+import { useTheme } from '../ThemeContext'
 import { useNavigate } from 'react-router-dom'
-
-const { color, font, radius } = theme
 
 interface Stats {
   total_users: number
@@ -28,6 +26,8 @@ interface AuditMetrics {
 
 export default function AdminDashboardPage() {
   const navigate = useNavigate()
+  const { theme, isDark } = useTheme()
+  const { color, font, radius } = theme
   const [stats, setStats] = useState<Stats | null>(null)
   const [metrics, setMetrics] = useState<AuditMetrics | null>(null)
   const [loading, setLoading] = useState(true)
@@ -170,7 +170,7 @@ export default function AdminDashboardPage() {
             alignItems: 'center',
             gap: '6px',
             padding: '7px 14px',
-            background: '#fff',
+            background: color.surface,
             border: `1px solid ${color.border}`,
             borderRadius: radius.sm,
             fontSize: '12.5px',
@@ -186,7 +186,7 @@ export default function AdminDashboardPage() {
       {/* KPI Stats Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#edf4f8', display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.adminAccent }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color.adminAccentSoft, display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.adminAccent }}>
             <Users size={20} />
           </div>
           <div>
@@ -198,7 +198,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#e8f5ee', display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.success }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color.successSoft, display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.success }}>
             <Calendar size={20} />
           </div>
           <div>
@@ -208,7 +208,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#fdf3f2', display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.danger }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color.dangerSoft, display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.danger }}>
             <ShieldAlert size={20} />
           </div>
           <div>
@@ -218,7 +218,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#f5f0e6', display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.warning }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: color.warningSoft, display: 'flex', alignItems: 'center', justifyItems: 'center', justifyContent: 'center', color: color.warning }}>
             <ClipboardList size={20} />
           </div>
           <div>
@@ -299,7 +299,7 @@ export default function AdminDashboardPage() {
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = color.border)}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '40px', height: '40px', background: '#edf4f8', borderRadius: radius.sm, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.adminAccent }}>
+            <div style={{ width: '40px', height: '40px', background: color.adminAccentSoft, borderRadius: radius.sm, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.adminAccent }}>
               <ClipboardList size={18} />
             </div>
             <div>
@@ -327,7 +327,7 @@ export default function AdminDashboardPage() {
           onMouseLeave={(e) => (e.currentTarget.style.borderColor = color.border)}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '40px', height: '40px', background: '#e8f5ee', borderRadius: radius.sm, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.success }}>
+            <div style={{ width: '40px', height: '40px', background: color.successSoft, borderRadius: radius.sm, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.success }}>
               <Users size={18} />
             </div>
             <div>

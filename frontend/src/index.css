@@ -179,3 +179,53 @@ body {
 .stage-connector.pending {
   background: #d3d1c7;
 }
+
+/* Dark mode overrides for Admin & Processing */
+html.dark-mode, html.dark-mode body {
+  background-color: #0f0f0f !important;
+  color: #f0f0f0 !important;
+}
+html.dark-mode .processing-title {
+  color: #f0f0f0;
+}
+html.dark-mode .processing-desc {
+  color: #a0a0a0;
+}
+html.dark-mode .processing-empty,
+html.dark-mode .processing-summary,
+html.dark-mode .processing-list {
+  background: #1a1a1a;
+  border-color: #2e2e2e;
+}
+html.dark-mode .processing-item-done {
+  background: #142115;
+}
+html.dark-mode .processing-item:not(:last-child) {
+  border-bottom-color: #2e2e2e;
+}
+html.dark-mode .processing-filename {
+  color: #f0f0f0;
+}
+html.dark-mode .processing-status,
+html.dark-mode .stat-label {
+  color: #a0a0a0;
+}
+html.dark-mode .stage-badge.done {
+  background: #1e3d1a;
+  color: #85d660;
+}
+html.dark-mode .stage-badge.active {
+  background: #162a3f;
+  color: #63b3ff;
+}
+html.dark-mode .stage-badge.pending {
+  background: #282828;
+  color: #777777;
+}
+html.dark-mode .stage-connector.done {
+  background: #27500A;
+}
+html.dark-mode .stage-connector.pending {
+  background: #3a3a3a;
+}
+

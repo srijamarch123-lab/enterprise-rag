@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { HardDrive, Download, DownloadCloud, CheckCircle, Plus, X } from 'lucide-react'
 import api from '../services/api'
+import { useTheme } from '../ThemeContext'
 
 type Drive = {
   id: string
@@ -14,6 +15,8 @@ type Drive = {
 
 export default function DrivePage() {
   const navigate = useNavigate()
+  const { theme, isDark } = useTheme()
+  const { color, font, radius } = theme
   const [drives, setDrives] = useState<Drive[]>([{ id: '1', label: 'Drive 1', credentials: {}, folderId: '', files: [], connected: false }])
   const [activeId, setActiveId] = useState('1')
   const [loading, setLoading] = useState(false)

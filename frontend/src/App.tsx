@@ -15,6 +15,8 @@ import AdminDashboardPage from './pages/AdminDashboardPage'
 import AdminFeedbackPage from './pages/AdminFeedbackPage'
 
 
+import { ThemeProvider } from './ThemeContext'
+
 export default function App() {
   const [role, setRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -28,41 +30,47 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, system-ui, sans-serif', color: '#63604F', fontSize: '14px' }}>
-        Loading...
-      </div>
+      <ThemeProvider>
+        <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter, system-ui, sans-serif', color: '#63604F', fontSize: '14px' }}>
+          Loading...
+        </div>
+      </ThemeProvider>
     )
   }
 
   if (!role) {
     return (
-      <Routes>
-        <Route path="/login" element={<LoginPage onLogin={setRole} />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <ThemeProvider>
+        <Routes>
+          <Route path="/login" element={<LoginPage onLogin={setRole} />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </ThemeProvider>
     )
   }
 
   return (
-    <Routes>
-      <Route path="/chat" element={<ChatPage role={role} />} />
+    <ThemeProvider>
+      <Routes>
+        <Route path="/chat" element={<ChatPage role={role} />} />
 
-      {role === 'admin' && (
-        <Route path="/" element={<AdminLayout role={role} />}>
-          <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="dashboard" element={<AdminDashboardPage />} />
-          <Route path="feedback" element={<AdminFeedbackPage />} />
-          <Route path="documents" element={<DocumentsPage />} />
-          <Route path="processing" element={<ProcessingPage />} />
-          <Route path="drive" element={<DrivePage />} />
-          <Route path="users" element={<UsersPage />} />
-          <Route path="user-log" element={<UserLogPage />} />
-          <Route path="add-admin" element={<AddAdminPage />} />
-        </Route>
-      )}
+        {role === 'admin' && (
+          <Route path="/" element={<AdminLayout role={role} />}>
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="dashboard" element={<AdminDashboardPage />} />
+            <Route path="feedback" element={<AdminFeedbackPage />} />
+            <Route path="documents" element={<DocumentsPage />} />
+            <Route path="processing" element={<ProcessingPage />} />
+            <Route path="drive" element={<DrivePage />} />
+            <Route path="users" element={<UsersPage />} />
+            <Route path="user-log" element={<UserLogPage />} />
+            <Route path="add-admin" element={<AddAdminPage />} />
+          </Route>
+        )}
 
-      <Route path="*" element={<Navigate to="/chat" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/chat" replace />} />
+      </Routes>
+    </ThemeProvider>
   )
 }

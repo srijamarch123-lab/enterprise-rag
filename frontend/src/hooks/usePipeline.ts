@@ -8,7 +8,7 @@ export type DocProgress = {
   error?: string
 }
 
-function mapStatus(backendStatus: any): DocProgress['status'] {
+export function mapStatus(backendStatus: any): DocProgress['status'] {
   const s = String(backendStatus?.value ?? backendStatus ?? '').toLowerCase()
   if (s.includes('embedded') || s === 'done') return 'done'
   if (s.includes('fail')) return 'failed'

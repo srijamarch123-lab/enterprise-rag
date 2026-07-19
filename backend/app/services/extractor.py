@@ -218,8 +218,23 @@ def _extract_docx(path: Path) -> tuple[str, None]:
 
     with open(path, "rb") as f:
         doc = Document(f)
-    text = "\n".join(para.text for para in doc.paragraphs)
-    return _clean(text), None
+    
+    parts = []
+    for para in doc.paragraphs:
+        if para.text and para.text.strip():
+            parts.append(para.text)
+
+    for table in doc.tables:
+        for row in table.rows:
+            row_str = " | ".join(cell.text.replace("\n", " ").strip() for cell in row.cells if cell.text.strip())
+            if row_str:
+                parts.append(row_str)
+
+    text = "\n".join(parts)
+    cleaned = _clean(text)
+    if not cleaned:
+        raise ValueError("DOCX extraction produced empty text")
+    return cleaned, None
 
 
 def _extract_pptx(path: Path) -> tuple[str, int]:
@@ -231,10 +246,21 @@ def _extract_pptx(path: Path) -> tuple[str, int]:
     for slide in prs.slides:
         slide_text = []
         for shape in slide.shapes:
-            if hasattr(shape, "text"):
+            if hasattr(shape, "text") and shape.text and shape.text.strip():
                 slide_text.append(shape.text)
-        slides.append("\n".join(slide_text))
-    return _clean("\n\n".join(slides)), len(prs.slides)
+            if hasattr(shape, "has_table") and shape.has_table:
+                for row in shape.table.rows:
+                    row_str = " | ".join(cell.text.replace("\n", " ").strip() for cell in row.cells if cell.text.strip())
+                    if row_str:
+                        slide_text.append(row_str)
+        if slide_text:
+            slides.append("\n".join(slide_text))
+    
+    full_text = "\n\n".join(slides)
+    cleaned = _clean(full_text)
+    if not cleaned:
+        raise ValueError("PPTX extraction produced empty text")
+    return cleaned, len(prs.slides)
 
 
 def _extract_txt(path: Path) -> tuple[str, None]:

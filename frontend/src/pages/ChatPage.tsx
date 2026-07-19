@@ -4,7 +4,7 @@ import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, T
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import api, { logout, submitFeedback, extractFileText } from '../services/api'
-import { lightTheme, darkTheme } from '../theme'
+import { useTheme } from '../ThemeContext'
 import './ChatPage.css'
 
 
@@ -59,10 +59,10 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const [groupBy, setGroupBy] = useState<'none' | 'date'>('none')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [isDark, setIsDark] = useState(() => localStorage.getItem('darkMode') === 'true')
-  const color = (isDark ? darkTheme : lightTheme).color
-  const radius = (isDark ? darkTheme : lightTheme).radius
-  const font = (isDark ? darkTheme : lightTheme).font
+  const { isDark, toggleDark, theme } = useTheme()
+  const color = theme.color
+  const radius = theme.radius
+  const font = theme.font
 
   // Feedback
   const [feedbackMsgId, setFeedbackMsgId] = useState<number | string | null>(null)
@@ -527,7 +527,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
 
         {/* Footer: dark mode toggle + logout */}
         <div style={{ padding: '10px 12px', borderTop: `1px solid ${isDark ? '#2e2e2e' : '#d0dbd0'}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          <button onClick={() => { const newDark = !isDark; setIsDark(newDark); localStorage.setItem('darkMode', String(newDark)) }}
+          <button onClick={toggleDark}
             style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', border: `1px solid ${isDark ? '#3a3a3a' : '#c0d0c0'}`, borderRadius: '7px', background: 'transparent', cursor: 'pointer', fontSize: '13px', color: isDark ? '#b0b0b0' : '#555', width: '100%' }}>
             {isDark ? <Sun size={14} /> : <Moon size={14} />}
             {isDark ? 'Light mode' : 'Dark mode'}

@@ -4,9 +4,12 @@ import { useState } from 'react'
 import { getDocuments, deleteDocument, reprocessDocument, processAll } from '../services/api'
 import StatusBadge from '../components/StatusBadge'
 import { Document } from '../types'
+import { useTheme } from '../ThemeContext'
 
 export default function DocumentsPage() {
   const qc = useQueryClient()
+  const { theme, isDark } = useTheme()
+  const { color, font, radius } = theme
   const [statusFilter, setStatusFilter] = useState('')
 
   const { data: docs = [] as Document[], isLoading } = useQuery<Document[]>({
@@ -30,21 +33,21 @@ export default function DocumentsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['documents'] }),
   })
 
-  const statuses = ['', 'pending', 'extracted', 'chunked', 'embedded', 'failed']
-
   const counts = {
     total: docs.length,
-    embedded: docs.filter((d: any) => String(d.status || '').toLowerCase().includes('embed')).length,
-    failed: docs.filter((d: any) => String(d.status || '').toLowerCase().includes('fail')).length,
+    embedded: docs.filter(d => d.status === 'embedded').length,
+    failed: docs.filter(d => d.status === 'failed').length,
   }
 
+  const statuses = ['', 'pending', 'extracting', 'extracted', 'chunking', 'chunked', 'embedding', 'embedded', 'failed']
+
   return (
-    <div style={{ padding: '32px' }}>
+    <div style={{ padding: '32px', fontFamily: font, background: color.bg, minHeight: '100vh' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
         <div>
-          <h1 style={{ fontSize: '20px', fontWeight: '600', color: '#1a3d2a', margin: '0 0 4px' }}>Documents</h1>
-          <p style={{ fontSize: '13px', color: '#5a8a6a', margin: 0 }}>
+          <h1 style={{ fontSize: '20px', fontWeight: '600', color: color.textPrimary, margin: '0 0 4px' }}>Documents</h1>
+          <p style={{ fontSize: '13px', color: color.textTertiary, margin: 0 }}>
             {counts.embedded} of {counts.total} embedded
             {counts.failed > 0 && ` · ${counts.failed} failed`}
           </p>
@@ -54,9 +57,9 @@ export default function DocumentsPage() {
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
             style={{
-              border: '1px solid #c8e6d0', borderRadius: '7px',
-              padding: '7px 10px', fontSize: '12px', color: '#1a3d2a',
-              background: '#fff', outline: 'none',
+              border: `1px solid ${color.border}`, borderRadius: radius.sm,
+              padding: '7px 10px', fontSize: '12px', color: color.textPrimary,
+              background: color.surface, outline: 'none',
             }}
           >
             {statuses.map(s => <option key={s} value={s}>{s || 'All statuses'}</option>)}
@@ -65,8 +68,8 @@ export default function DocumentsPage() {
             onClick={() => processAllMut.mutate()}
             disabled={processAllMut.isPending}
             style={{
-              padding: '7px 12px', borderRadius: '7px', border: '1px solid #c8e6d0',
-              background: '#27500A', color: '#fff', cursor: 'pointer', fontSize: '12px',
+              padding: '7px 12px', borderRadius: radius.sm, border: `1px solid ${color.border}`,
+              background: color.adminAccent, color: '#fff', cursor: 'pointer', fontSize: '12px',
               fontWeight: '500', display: 'flex', alignItems: 'center', gap: '4px',
               opacity: processAllMut.isPending ? 0.7 : 1,
             }}
@@ -76,40 +79,40 @@ export default function DocumentsPage() {
           <button
             onClick={() => qc.invalidateQueries({ queryKey: ['documents'] })}
             style={{
-              padding: '7px', borderRadius: '7px', border: '1px solid #c8e6d0',
-              background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center',
+              padding: '7px', borderRadius: radius.sm, border: `1px solid ${color.border}`,
+              background: color.surface, cursor: 'pointer', display: 'flex', alignItems: 'center',
             }}
           >
-            <RefreshCw size={13} color="#5a8a6a" />
+            <RefreshCw size={13} color={color.textSecondary} />
           </button>
         </div>
       </div>
 
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '24px' }}>
-        <SummaryCard label="Total documents" value={counts.total} color="#1a3d2a" bg="#e8f5ee" />
-        <SummaryCard label="Fully embedded" value={counts.embedded} color="#27500A" bg="#c0dd97" />
-        <SummaryCard label="Failed" value={counts.failed} color="#A32D2D" bg="#FCEBEB" />
+        <SummaryCard label="Total documents" value={counts.total} color={color.textPrimary} bg={color.adminAccentSoft} />
+        <SummaryCard label="Fully embedded" value={counts.embedded} color={color.success} bg={color.successSoft} />
+        <SummaryCard label="Failed" value={counts.failed} color={color.danger} bg={color.dangerSoft} />
       </div>
 
       {/* Table */}
       {isLoading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: '#5a8a6a', fontSize: '13px' }}>Loading…</div>
+        <div style={{ textAlign: 'center', padding: '60px', color: color.textTertiary, fontSize: '13px' }}>Loading…</div>
       ) : docs.length === 0 ? (
         <div style={{
           textAlign: 'center', padding: '60px',
-          background: '#fff', border: '1px solid #c8e6d0',
-          borderRadius: '12px', color: '#5a8a6a', fontSize: '13px',
+          background: color.surface, border: `1px solid ${color.border}`,
+          borderRadius: radius.md, color: color.textTertiary, fontSize: '13px',
         }}>
           No documents yet. Import from Google Drive or upload files directly.
         </div>
       ) : (
-        <div style={{ background: '#fff', border: '1px solid #c8e6d0', borderRadius: '12px', overflow: 'hidden' }}>
+        <div style={{ background: color.surface, border: `1px solid ${color.border}`, borderRadius: radius.md, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
             <thead>
-              <tr style={{ background: '#f0faf3', borderBottom: '1px solid #c8e6d0' }}>
+              <tr style={{ background: isDark ? '#242424' : '#f0faf3', borderBottom: `1px solid ${color.border}` }}>
                 {['Name', 'Type', 'Department', 'Status', 'Pages', 'Chunks', 'Uploaded', ''].map(h => (
-                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '500', color: '#4a7a5a', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontWeight: '500', color: color.textTertiary, fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                     {h}
                   </th>
                 ))}
@@ -119,15 +122,15 @@ export default function DocumentsPage() {
               {docs.map((doc: Document, i: number) => (
                 <tr
                   key={doc.id}
-                  style={{ borderBottom: i < docs.length - 1 ? '1px solid #edf5ee' : 'none' }}
+                  style={{ borderBottom: i < docs.length - 1 ? `1px solid ${color.border}` : 'none' }}
                 >
-                  <td style={{ padding: '10px 14px', color: '#1a3d2a', fontWeight: '500', maxWidth: '220px' }}>
+                  <td style={{ padding: '10px 14px', color: color.textPrimary, fontWeight: '500', maxWidth: '220px' }}>
                     <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={doc.filename}>
                       <a
                         href={`${import.meta.env.VITE_API_URL || ''}/api/documents/${doc.id}/download`}
                         target="_blank"
                         rel="noreferrer"
-                        style={{ color: '#1a3d2a', textDecoration: 'none', cursor: 'pointer' }}
+                        style={{ color: color.textPrimary, textDecoration: 'none', cursor: 'pointer' }}
                         onMouseOver={(e) => (e.currentTarget.style.textDecoration = 'underline')}
                         onMouseOut={(e) => (e.currentTarget.style.textDecoration = 'none')}
                       >
@@ -137,7 +140,7 @@ export default function DocumentsPage() {
                     {doc.status === 'failed' && doc.extraction_error && (
                       <div style={{
                         fontSize: '11px',
-                        color: '#A32D2D',
+                        color: color.danger,
                         fontWeight: 'normal',
                         marginTop: '4px',
                         whiteSpace: 'normal',
@@ -148,12 +151,12 @@ export default function DocumentsPage() {
                       </div>
                     )}
                   </td>
-                  <td style={{ padding: '10px 14px', color: '#5a8a6a', textTransform: 'uppercase', fontSize: '11px' }}>{doc.file_type}</td>
-                  <td style={{ padding: '10px 14px', color: '#5a8a6a' }}>{doc.department ?? '—'}</td>
+                  <td style={{ padding: '10px 14px', color: color.textSecondary, textTransform: 'uppercase', fontSize: '11px' }}>{doc.file_type}</td>
+                  <td style={{ padding: '10px 14px', color: color.textSecondary }}>{doc.department ?? '—'}</td>
                   <td style={{ padding: '10px 14px' }}><StatusBadge status={doc.status} /></td>
-                  <td style={{ padding: '10px 14px', color: '#5a8a6a' }}>{doc.page_count ?? '—'}</td>
-                  <td style={{ padding: '10px 14px', color: '#5a8a6a' }}>{doc.chunk_count ?? '—'}</td>
-                  <td style={{ padding: '10px 14px', color: '#888780', fontSize: '11px' }}>
+                  <td style={{ padding: '10px 14px', color: color.textSecondary }}>{doc.page_count ?? '—'}</td>
+                  <td style={{ padding: '10px 14px', color: color.textSecondary }}>{doc.chunk_count ?? '—'}</td>
+                  <td style={{ padding: '10px 14px', color: color.textTertiary, fontSize: '11px' }}>
                     {new Date(doc.uploaded_at).toLocaleDateString()}
                   </td>
                   <td style={{ padding: '10px 14px', display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -161,16 +164,16 @@ export default function DocumentsPage() {
                       onClick={() => reprocessMut.mutate(doc.id)}
                       title="Reprocess Document"
                       disabled={reprocessMut.isPending}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: '5px', display: 'flex', alignItems: 'center' }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: radius.sm, display: 'flex', alignItems: 'center' }}
                     >
-                      <RefreshCw size={13} color={reprocessMut.isPending ? "#a0c0b0" : "#5a8a6a"} />
+                      <RefreshCw size={13} color={reprocessMut.isPending ? color.borderStrong : color.textSecondary} />
                     </button>
                     <button
                       onClick={() => deleteMut.mutate(doc.id)}
                       title="Delete Document"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: '5px', display: 'flex', alignItems: 'center' }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', borderRadius: radius.sm, display: 'flex', alignItems: 'center' }}
                     >
-                      <Trash2 size={13} color="#c8776a" />
+                      <Trash2 size={13} color={color.danger} />
                     </button>
                   </td>
                 </tr>
@@ -187,7 +190,7 @@ function SummaryCard({ label, value, color, bg }: { label: string; value: number
   return (
     <div style={{ background: bg, borderRadius: '10px', padding: '14px 18px' }}>
       <div style={{ fontSize: '24px', fontWeight: '600', color }}>{value}</div>
-      <div style={{ fontSize: '12px', color, opacity: 0.7, marginTop: '2px' }}>{label}</div>
+      <div style={{ fontSize: '12px', color, opacity: 0.8, marginTop: '2px' }}>{label}</div>
     </div>
   )
 }

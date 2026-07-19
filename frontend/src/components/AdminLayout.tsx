@@ -1,12 +1,10 @@
 import { Outlet, NavLink } from 'react-router-dom'
 import {
   FileText, HardDrive, Users, LogOut, Cpu,
-  MessageSquare, ClipboardList, UserCheck, Shield,
+  MessageSquare, ClipboardList, UserCheck, Shield, Sun, Moon
 } from 'lucide-react'
 import { logout } from '../services/api'
-import { theme } from '../theme'
-
-const { color, font, radius } = theme
+import { useTheme } from '../ThemeContext'
 
 const chatNav = [{ to: '/chat', icon: MessageSquare, label: 'Chat' }]
 
@@ -27,6 +25,8 @@ interface AdminLayoutProps {
 }
 
 export default function AdminLayout({ role }: AdminLayoutProps) {
+  const { isDark, toggleDark, theme } = useTheme()
+  const { color, font, radius } = theme
   const isAdmin = role === 'admin'
   const nav = isAdmin ? [...chatNav, ...adminNav] : chatNav
 
@@ -102,21 +102,35 @@ export default function AdminLayout({ role }: AdminLayoutProps) {
           ))}
         </nav>
 
-        <button
-          onClick={handleLogout}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '9px',
-            padding: '14px 20px', borderTop: `1px solid ${color.border}`,
-            background: 'transparent', border: 'none', cursor: 'pointer',
-            fontSize: '13.5px', fontWeight: 500, color: color.textSecondary,
-            width: '100%', textAlign: 'left', transition: 'color 0.12s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = color.danger)}
-          onMouseLeave={(e) => (e.currentTarget.style.color = color.textSecondary)}
-        >
-          <LogOut size={15} strokeWidth={2} />
-          Log out
-        </button>
+        <div style={{ padding: '10px 12px', borderTop: `1px solid ${color.border}`, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <button
+            onClick={toggleDark}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '8px 10px', border: `1px solid ${color.border}`,
+              borderRadius: radius.sm, background: 'transparent', cursor: 'pointer',
+              fontSize: '13px', color: color.textSecondary, width: '100%',
+              transition: 'all 0.12s',
+            }}
+          >
+            {isDark ? <Sun size={14} /> : <Moon size={14} />}
+            {isDark ? 'Light mode' : 'Dark mode'}
+          </button>
+          <button
+            onClick={handleLogout}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '8px 10px', border: 'none', background: 'transparent',
+              cursor: 'pointer', fontSize: '13px', color: color.textSecondary,
+              width: '100%', textAlign: 'left', transition: 'color 0.12s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = color.danger)}
+            onMouseLeave={(e) => (e.currentTarget.style.color = color.textSecondary)}
+          >
+            <LogOut size={14} strokeWidth={2} />
+            Log out
+          </button>
+        </div>
       </aside>
 
       <main style={{ flex: 1, overflow: 'auto', background: color.bg }}>

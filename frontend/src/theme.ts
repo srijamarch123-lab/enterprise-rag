@@ -1,5 +1,31 @@
-// Design tokens with light and dark mode support
-export const lightTheme = {
+export interface Theme {
+  color: {
+    bg: string
+    surface: string
+    surfaceMuted: string
+    border: string
+    borderStrong: string
+    textPrimary: string
+    textSecondary: string
+    textTertiary: string
+    adminAccent: string
+    adminAccentHover: string
+    adminAccentSoft: string
+    chatAccent: string
+    chatAccentHover: string
+    chatAccentSoft: string
+    success: string
+    successSoft: string
+    warning: string
+    warningSoft: string
+    danger: string
+    dangerSoft: string
+  }
+  font: string
+  radius: { sm: string; md: string; lg: string }
+}
+
+export const lightTheme: Theme = {
   color: {
     bg: '#F7F5F1',
     surface: '#FFFFFF',
@@ -24,9 +50,9 @@ export const lightTheme = {
   },
   font: "'Inter', system-ui, -apple-system, sans-serif",
   radius: { sm: '6px', md: '10px', lg: '14px' },
-} as const
+}
 
-export const darkTheme = {
+export const darkTheme: Theme = {
   color: {
     bg: '#0f0f0f',
     surface: '#1a1a1a',
@@ -51,6 +77,6 @@ export const darkTheme = {
   },
   font: "'Inter', system-ui, -apple-system, sans-serif",
   radius: { sm: '6px', md: '10px', lg: '14px' },
-} as const
+}
 
 export const theme = lightTheme
