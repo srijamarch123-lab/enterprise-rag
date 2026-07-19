@@ -235,7 +235,7 @@ def stream_chat(
             session.updated_at = __import__("datetime").datetime.utcnow()
             session.title = session.title if session.title != "New chat" else (req.content.strip()[:40] or session.title)
             db.commit()
-            yield f"data: {__import__('json').dumps({'message_id': assistant_message.id, 'answer': final_text, 'results': results, 'has_answer': search_response.get('has_answer', False), 'suggestions': suggestions})}\n\n"
+            yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': results, 'has_answer': search_response.get('has_answer', False), 'suggestions': suggestions})}\n\n"
         except Exception as exc:  # pragma: no cover - defensive fallback
             import logging
             logging.getLogger(__name__).error("Stream error: %s", exc, exc_info=True)
@@ -258,7 +258,7 @@ def stream_chat(
             )
             db.add(assistant_message)
             db.commit()
-            yield f"data: {__import__('json').dumps({'message_id': assistant_message.id, 'answer': final_text, 'results': chunks, 'has_answer': bool(chunks), 'suggestions': suggestions})}\n\n"
+            yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': chunks, 'has_answer': bool(chunks), 'suggestions': suggestions})}\n\n"
 
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

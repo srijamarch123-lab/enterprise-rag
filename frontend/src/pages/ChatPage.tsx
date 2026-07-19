@@ -132,9 +132,19 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         if (c.id !== sessionId) return c
         const title = data.title && data.title !== 'New chat' ? data.title : c.title
         if (mergeOnly) {
-          // Keep local messages, only add ones from DB that have content
           const localIds = new Set(c.messages.map((m: any) => m.id))
-          const newMsgs = mappedMessages.filter((m: any) => !localIds.has(m.id) && m.content)
+          const hasTempIds = c.messages.some((m: any) => typeof m.id === 'string' && m.id.length > 20)
+          if (!hasTempIds || mappedMessages.length >= c.messages.length) {
+            return { ...c, title, messages: mappedMessages }
+          }
+          const newMsgs = mappedMessages.filter((m: any) => {
+            if (localIds.has(m.id)) return false
+            const existsInLocal = c.messages.some((local: any) => 
+              local.role === m.role && 
+              ((local.query || local.content || local.answer) === (m.query || m.content || m.answer))
+            )
+            return !existsInLocal && m.content
+          })
           return { ...c, title, messages: [...c.messages, ...newMsgs] }
         }
         return { ...c, title, messages: mappedMessages }
@@ -164,7 +174,8 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       setActiveId(currentActiveId)
     }
 
-    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', query }
+    const userMsgTempId = crypto.randomUUID()
+    const userMsg: ChatMessage = { id: userMsgTempId, role: 'user', query }
     setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, title: c.messages.length === 0 ? query.slice(0, 40) : c.title, messages: [...c.messages, userMsg] } : c)))
     setInput('')
     setLoading(true)
@@ -195,6 +206,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       let parsedResults: SearchResult[] = []
       let hasAnswer = true
       let suggestions: string[] = []
+      let actualUserDbId: number | string | undefined = undefined
       let actualDbId: number | string | undefined = undefined
 
       const assistantMsgTempId = crypto.randomUUID()
@@ -224,6 +236,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                 if (Array.isArray(parsed.results)) parsedResults = parsed.results
                 if (typeof parsed.has_answer === 'boolean') hasAnswer = parsed.has_answer
                 if (Array.isArray(parsed.suggestions)) suggestions = parsed.suggestions
+                if (typeof parsed.user_message_id === 'number') actualUserDbId = parsed.user_message_id
                 if (typeof parsed.message_id === 'number') actualDbId = parsed.message_id
               } catch { streamed += data }
             } else { streamed += data }
@@ -231,7 +244,18 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
             setConversations((prev) =>
               prev.map((c) =>
                 c.id === currentActiveId
-                  ? { ...c, messages: c.messages.map((m) => m.id === assistantMsgTempId || m.id === actualDbId ? { ...m, id: actualDbId || m.id, answer: streamed, results: parsedResults, hasAnswer, suggestions } : m) }
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m) => {
+                        if ((m.id === userMsgTempId || m.id === actualUserDbId) && actualUserDbId) {
+                          return { ...m, id: actualUserDbId }
+                        }
+                        if (m.id === assistantMsgTempId || m.id === actualDbId) {
+                          return { ...m, id: actualDbId || m.id, answer: streamed, results: parsedResults, hasAnswer, suggestions }
+                        }
+                        return m
+                      }),
+                    }
                   : c
               )
             )
