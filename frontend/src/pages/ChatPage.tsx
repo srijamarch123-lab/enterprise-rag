@@ -539,7 +539,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         </div>
       </aside>
 
-      <main className="chat-page-main">
+      <main className="chat-page-main" style={{ background: isDark ? "#212121" : "#f7f5f1" }}>
         {/* Session drive indicator */}
         {sessionDrive && (
           <div style={{ padding: '6px 24px', background: color.chatAccentSoft, borderBottom: `1px solid ${color.border}`, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: color.chatAccentHover }}>
@@ -580,7 +580,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                 ) : (
                   <div className="chat-page-message-column">
                     {(m.answer || m.content) ? (
-                      <div className="chat-page-message-answer-plain">
+                      <div className="chat-page-message-answer-plain" style={{ color: isDark ? "#f0f0f0" : "#2B2A27" }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.answer || m.content || ""}</ReactMarkdown>
                       </div>
                     ) : loading && m.id === active.messages[active.messages.length - 1]?.id ? (
@@ -669,7 +669,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
           </div>
         </div>
 
-        <form onSubmit={handleSend} className="chat-page-form">
+        <form onSubmit={handleSend} className="chat-page-form" style={{ background: isDark ? "#1a1a1a" : "white", borderTopColor: isDark ? "#2e2e2e" : undefined }}>
           <div className="chat-page-form-row">
 
             {/* Plus button */}
@@ -705,7 +705,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
               )}
             </div>
 
-            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask a question about your documents..." className="chat-page-input" />
+            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask a question about your documents..." className="chat-page-input" style={{ background: isDark ? "#2a2a2a" : "white", color: isDark ? "#f0f0f0" : "#2B2A27", borderColor: isDark ? "#3a3a3a" : undefined }} />
             {loading ? (
               <button type="button" onClick={handleStopGeneration} className="chat-page-stop-button" aria-label="Stop generation">
                 <Square size={14} fill={color.chatAccent} color={color.chatAccent} style={{ marginRight: '6px' }} /> Stop
