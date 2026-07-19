@@ -12,14 +12,19 @@ from sqlalchemy.orm import Session
 router = APIRouter(prefix="/api", tags=["processing"])
 
 
-def _run(db: Session):
-    process_all_documents(db)
+def _run():
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        process_all_documents(db)
+    finally:
+        db.close()
 
 
 @router.post("/process-all", dependencies=[Depends(require_manager_or_above)])
 def process_all(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     # Run in background because it can take long.
-    background_tasks.add_task(_run, db)
+    background_tasks.add_task(_run)
 
     # Immediate response: provide counts for current state.
     total = db.query(Document).count()

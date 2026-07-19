@@ -115,6 +115,15 @@ def list_files(req: DriveRequest):
         raise HTTPException(500, str(e))
 
 
+def _run_process_all():
+    from app.database import SessionLocal
+    db = SessionLocal()
+    try:
+        process_all_documents(db)
+    finally:
+        db.close()
+
+
 @router.post("/import")
 def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
@@ -151,7 +160,7 @@ def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Sessi
     db.add(doc)
     db.commit()
     db.refresh(doc)
-    background_tasks.add_task(process_all_documents, db)
+    background_tasks.add_task(_run_process_all)
     return {"id": doc.id, "filename": req.file["name"], "skipped": False}
 
 
@@ -194,5 +203,5 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
             results.append({"filename": f["name"], "error": str(e)})
     
     # Auto-process all newly imported documents via background task
-    background_tasks.add_task(process_all_documents, db)
+    background_tasks.add_task(_run_process_all)
     return results

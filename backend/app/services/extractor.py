@@ -37,9 +37,11 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
         return _extract_docx(path)
     if ext == "pptx":
         return _extract_pptx(path)
-    if ext == "txt":
+    if ext in ["txt", "json", "yaml", "yml", "xml", "log", "py", "js", "ts", "tsx", "jsx", "java", "cpp", "cs", "go", "rs", "sh", "rtf", "ini", "env"]:
         return _extract_txt(path)
-    if ext in ["png", "jpg", "jpeg"]:
+    if ext in ["html", "htm"]:
+        return _extract_html(path)
+    if ext in ["png", "jpg", "jpeg", "webp"]:
         return _extract_image(path)
     if ext == "csv":
         return _extract_csv(path)
@@ -48,7 +50,19 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
     if ext in ["md", "markdown"]:
         return _extract_markdown(path)
 
-    raise ValueError(f"Unsupported file type: {ext}")
+    # Generic fallback: attempt plain text extraction for any unlisted format
+    try:
+        return _extract_txt(path)
+    except Exception:
+        raise ValueError(f"Unsupported file type: {ext}")
+
+
+def _extract_html(path: Path) -> tuple[str, None]:
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    clean_html = re.sub(r"<script.*?>.*?</script>", "", raw, flags=re.DOTALL | re.IGNORECASE)
+    clean_html = re.sub(r"<style.*?>.*?</style>", "", clean_html, flags=re.DOTALL | re.IGNORECASE)
+    clean_text = re.sub(r"<[^>]+>", " ", clean_html)
+    return _clean(clean_text), None
 
 
 def _extract_pdf(path: Path) -> tuple[str, int]:

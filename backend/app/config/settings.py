@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # App
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 50
-    allowed_extensions: str = "pdf,docx,pptx,txt,png,jpg,jpeg,csv,xlsx,xls,md"
+    allowed_extensions: str = "pdf,docx,pptx,txt,png,jpg,jpeg,csv,xlsx,xls,md,json,html,htm,yaml,yml,xml,log,py,js,ts,tsx,jsx,java,cpp,cs,go,rs,sh,rtf"
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://enterprise-rag-frontend-ez1k.onrender.com"
 
     # Embedding

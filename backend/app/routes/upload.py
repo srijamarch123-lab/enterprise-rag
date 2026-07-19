@@ -74,11 +74,13 @@ def _save_file(file: UploadFile, ext: str) -> tuple[str, str, int, str]:
     return saved_name, str(dest), size, ext
 
 
-def _run_extraction(doc_id: int, db: Session):
-    doc = db.query(Document).filter(Document.id == doc_id).first()
-    if not doc:
-        return
+def _run_extraction(doc_id: int):
+    from app.database import SessionLocal
+    db = SessionLocal()
     try:
+        doc = db.query(Document).filter(Document.id == doc_id).first()
+        if not doc:
+            return
         doc.status = DocumentStatus.extracting
         db.commit()
         text, pages = extract_text(doc.file_path, doc.file_type)
@@ -86,6 +88,7 @@ def _run_extraction(doc_id: int, db: Session):
         doc.page_count = pages
         doc.status = DocumentStatus.extracted
         doc.processed_at = datetime.utcnow()
+        db.commit()
         # Immediately chunk after successful extraction
         chunk_document(doc, db)
         # Immediately embed after successful chunking
@@ -94,10 +97,16 @@ def _run_extraction(doc_id: int, db: Session):
         from app.services.redis_service import invalidate_rag_cache
         invalidate_rag_cache()
     except Exception as e:
-        doc.status = DocumentStatus.failed
-        doc.extraction_error = str(e)
+        try:
+            doc = db.query(Document).filter(Document.id == doc_id).first()
+            if doc:
+                doc.status = DocumentStatus.failed
+                doc.extraction_error = str(e)
+                db.commit()
+        except Exception:
+            pass
     finally:
-        db.commit()
+        db.close()
 
 
 @router.post("/upload", status_code=201, dependencies=[Depends(require_manager_or_above)])
@@ -125,7 +134,7 @@ def upload_file(
     db.commit()
     db.refresh(doc)
 
-    background_tasks.add_task(_run_extraction, doc.id, db)
+    background_tasks.add_task(_run_extraction, doc.id)
 
     log_action(
         db,
@@ -167,7 +176,7 @@ def upload_bulk(
             db.add(doc)
             db.commit()
             db.refresh(doc)
-            background_tasks.add_task(_run_extraction, doc.id, db)
+            background_tasks.add_task(_run_extraction, doc.id)
             results.append({"id": doc.id, "filename": file.filename, "status": "queued"})
         except HTTPException as e:
             results.append({"filename": file.filename, "error": e.detail})

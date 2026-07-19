@@ -10,7 +10,7 @@ if db_url.startswith("postgres://"):
 
 engine_args = {}
 if "sqlite" in db_url:
-    engine_args["connect_args"] = {"check_same_thread": False}
+    engine_args["connect_args"] = {"check_same_thread": False, "timeout": 60.0}
 else:
     import os
     engine_args["pool_size"] = int(os.environ.get("DB_POOL_SIZE", "10"))

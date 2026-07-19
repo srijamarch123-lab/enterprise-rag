@@ -1,4 +1,4 @@
-﻿"""
+"""
 Personal Google Drive connector - same mechanics as /api/drive, but scoped
 to the authenticated user's own private documents. owner_user_id always
 comes from the session (never trusted from the client).
@@ -93,7 +93,7 @@ def import_personal_file(
     db.commit()
     db.refresh(doc)
 
-    background_tasks.add_task(_run_extraction, doc.id, db)
+    background_tasks.add_task(_run_extraction, doc.id)
 
     return {"id": doc.id, "filename": req.file["name"], "skipped": False}
 
@@ -129,7 +129,7 @@ def import_all_personal(
             db.add(doc)
             db.commit()
             db.refresh(doc)
-            background_tasks.add_task(_run_extraction, doc.id, db)
+            background_tasks.add_task(_run_extraction, doc.id)
             results.append({"id": doc.id, "filename": f["name"], "skipped": False})
         except Exception as e:
             results.append({"filename": f["name"], "error": str(e)})

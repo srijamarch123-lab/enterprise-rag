@@ -42,7 +42,7 @@ def upload_personal_file(
     db.commit()
     db.refresh(doc)
 
-    background_tasks.add_task(_run_extraction, doc.id, db)
+    background_tasks.add_task(_run_extraction, doc.id)
 
     return {"id": doc.id, "filename": doc.original_filename, "status": doc.status}
 
