@@ -165,7 +165,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         setSessionDoc(null)
         setSessionDrive(null)
       }
-    } catch {}
+    } catch (err: any) { alert("Delete failed: " + (err?.response?.data?.detail || err?.message)) }
   }
 
   const handleSend = async (e?: React.FormEvent, overrideQuery?: string) => {
@@ -378,20 +378,20 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     try {
       await api.patch(`/chat/sessions/${sessionId}`, { title: newTitle })
       setConversations(prev => prev.map(c => c.id === sessionId ? { ...c, title: newTitle } : c))
-    } catch {}
+    } catch (err: any) { alert("Delete failed: " + (err?.response?.data?.detail || err?.message)) }
   }
 
   const handleDelete = async (sessionId: string) => {
     if (!window.confirm('Delete this chat?')) return
     try {
-      await api.delete(`/chat/sessions/${sessionId}`)
+      await api.delete(`/chat/sessions/${Number(sessionId)}`)
       setConversations(prev => prev.filter(c => c.id !== sessionId))
       if (activeId === sessionId) {
         const remaining = conversations.filter(c => c.id !== sessionId)
         if (remaining.length > 0) { setActiveId(remaining[0].id); loadSessionMessages(remaining[0].id) }
         else handleNewChat()
       }
-    } catch {}
+    } catch (err: any) { alert("Delete failed: " + (err?.response?.data?.detail || err?.message)) }
   }
 
   return (
