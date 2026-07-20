@@ -605,7 +605,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                                   <span className="chat-page-result-badge">{r.search_type}</span>
                                 </div>
                                 <div className="chat-page-result-score">
-                                  <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{pct.toFixed(0)}%</span>
+                                  <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{Math.min(pct, 99).toFixed(0)}%</span>
                                   <progress value={Math.min(pct, 100)} max={100} className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`} />
                                 </div>
                               </div>
