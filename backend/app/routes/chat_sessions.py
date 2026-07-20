@@ -110,6 +110,18 @@ def get_session(
                     r_copy["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
                 if doc.file_path and not r_copy.get("file_path"):
                     r_copy["file_path"] = doc.file_path
+
+            # Recalibrate score for historical messages if uncalibrated (>= 0.99 or missing)
+            cs = float(r_copy.get("confidence_score") or r_copy.get("combined_score") or 0.0)
+            sem = float(r_copy.get("semantic_score", 0.0) or 0.0)
+            if cs >= 0.99 or cs <= 0:
+                if sem > 0:
+                    recalibrated = min(0.98, max(0.40, sem))
+                else:
+                    recalibrated = 0.85
+                r_copy["combined_score"] = round(recalibrated, 4)
+                r_copy["confidence_score"] = round(recalibrated, 4)
+
             enriched.append(r_copy)
         return enriched
 
