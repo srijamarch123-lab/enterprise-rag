@@ -79,7 +79,8 @@ def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    from app.models import Feedback
+    from app.models import Feedback, Document
+
     message_ids = [msg.id for msg in session.messages]
     feedbacks = db.query(Feedback).filter(
         Feedback.message_id.in_(message_ids),
@@ -87,23 +88,50 @@ def get_session(
     ).all() if message_ids else []
     feedback_map = {f.message_id: ("up" if f.is_helpful else "down") for f in feedbacks}
 
+    def _enrich_results(res_list):
+        if not isinstance(res_list, list):
+            return res_list
+        enriched = []
+        for r in res_list:
+            if not isinstance(r, dict):
+                enriched.append(r)
+                continue
+            r_copy = dict(r)
+            doc_id = r_copy.get("document_id")
+            filename = r_copy.get("filename")
+            doc = None
+            if doc_id:
+                doc = db.query(Document).filter(Document.id == doc_id).first()
+            if not doc and filename:
+                doc = db.query(Document).filter(Document.original_filename == filename).first()
+            if doc:
+                if doc.drive_file_id and not r_copy.get("drive_url"):
+                    r_copy["drive_file_id"] = doc.drive_file_id
+                    r_copy["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
+                if doc.file_path and not r_copy.get("file_path"):
+                    r_copy["file_path"] = doc.file_path
+            enriched.append(r_copy)
+        return enriched
+
+    formatted_messages = []
+    for message in session.messages:
+        meta = dict(message.message_metadata or {})
+        if "results" in meta:
+            meta["results"] = _enrich_results(meta["results"])
+        meta["feedbackSubmitted"] = feedback_map.get(message.id)
+        formatted_messages.append({
+            "id": message.id,
+            "role": message.role,
+            "content": message.content,
+            "metadata": meta,
+        })
+
     return {
         "id": session.id,
         "title": session.title,
         "session_doc": (session.session_metadata or {}).get("session_doc"),
         "session_doc_name": (session.session_metadata or {}).get("session_doc_name"),
-        "messages": [
-            {
-                "id": message.id,
-                "role": message.role,
-                "content": message.content,
-                "metadata": {
-                    **(message.message_metadata or {}),
-                    "feedbackSubmitted": feedback_map.get(message.id),
-                },
-            }
-            for message in session.messages
-        ],
+        "messages": formatted_messages,
     }
 
 

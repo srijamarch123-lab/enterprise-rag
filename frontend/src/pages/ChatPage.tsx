@@ -12,10 +12,12 @@ import './ChatPage.css'
 import { SearchResult, ChatMessage, Conversation } from '../types'
 
 function confidencePercent(r: SearchResult): number {
-  if (typeof r.confidence_score === 'number') return r.confidence_score * 100
-  if (typeof r.combined_score === 'number') return r.combined_score * 100
-  if (r.search_type === 'semantic' && typeof r.semantic_score === 'number') return r.semantic_score * 100
-  return 0
+  let val = 0
+  if (typeof r.confidence_score === 'number' && r.confidence_score > 0) val = r.confidence_score * 100
+  else if (typeof r.combined_score === 'number' && r.combined_score > 0) val = r.combined_score * 100
+  else if (typeof r.semantic_score === 'number' && r.semantic_score > 0) val = r.semantic_score * 100
+  else if (typeof r.score === 'number' && r.score > 0) val = r.score > 1 ? r.score : r.score * 100
+  return Math.min(Math.max(val, 0), 100)
 }
 
 function newConversation(): Conversation {

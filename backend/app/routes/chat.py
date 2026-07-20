@@ -188,6 +188,9 @@ def chat(
                         "filename": r.get("filename"),
                         "file_path": r.get("file_path"),
                         "combined_score": r.get("combined_score"),
+                        "confidence_score": r.get("confidence_score") or r.get("combined_score"),
+                        "semantic_score": r.get("semantic_score"),
+                        "search_type": r.get("search_type", "hybrid"),
                     })
 
                 yield f"data: {json.dumps({'event': 'metadata', 'results': serializable_results, 'has_answer': has_answer})}\n\n"

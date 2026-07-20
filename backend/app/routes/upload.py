@@ -90,6 +90,7 @@ def upload_file(
     file: UploadFile = File(...),
     department: str | None = None,
     request: Request = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     ext = _validate_file(file)
@@ -113,7 +114,7 @@ def upload_file(
     log_action(
         db,
         action="upload",
-        user_id=None,
+        user_id=current_user.id,
         ip_address=request.client.host if request and request.client else None,
         details={"filename": file.filename, "document_id": doc.id},
     )
@@ -125,11 +126,11 @@ def upload_file(
 @router.post("/upload/bulk", status_code=201, dependencies=[Depends(require_manager_or_above)])
 @limiter.limit(settings.rate_limit_upload)
 def upload_bulk(
-
     background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     department: str | None = None,
     request: Request = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
 
@@ -159,7 +160,7 @@ def upload_bulk(
         log_action(
             db,
             action="upload",
-            user_id=None,
+            user_id=current_user.id,
             ip_address=request.client.host if request and request.client else None,
             details={"filename": file.filename, "document_id": doc.id},
         )

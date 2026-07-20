@@ -48,7 +48,9 @@ class OptimizationsTests(unittest.TestCase):
         results, has_answer = _merge_results(semantic_hits, bm25_results, top_k=5, confidence_threshold=0.0)
         self.assertTrue(has_answer)
         self.assertEqual(len(results), 2)
-        self.assertAlmostEqual(results[0]["combined_score"], results[1]["combined_score"])
+        # Chunk 1 (higher semantic similarity 0.9) ranks top with higher combined_score than Chunk 2 (0.8)
+        self.assertGreater(results[0]["combined_score"], results[1]["combined_score"])
+        self.assertLess(results[0]["combined_score"], 1.0)
 
     def test_hierarchical_chunking(self):
         """Verify chunker splits document into parent-child hierarchical chunks."""

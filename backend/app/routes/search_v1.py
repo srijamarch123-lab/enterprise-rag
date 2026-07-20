@@ -56,9 +56,20 @@ def _rerank_with_cross_encoder(query: str, merged_results: List[Dict[str, Any]])
             idx = rr["result_index"]
             score = float(rr["score"])
             import math
-            prob = 1 / (1 + math.exp(-score))
-            merged_results[idx]["combined_score"] = prob
-            merged_results[idx]["confidence_score"] = prob
+            # Temperature scaling T=2.8 for cross-encoder logits
+            ce_prob = 1.0 / (1.0 + math.exp(-score / 2.8))
+            sem = float(merged_results[idx].get("semantic_score", 0.0) or 0.0)
+            if sem > 0:
+                final_score = 0.6 * ce_prob + 0.4 * sem
+            else:
+                final_score = ce_prob
+
+            # Cap score at 0.98 to prevent flat 100%/99% saturation
+            final_score = min(0.98, max(0.05, final_score))
+            final_score = round(final_score, 4)
+
+            merged_results[idx]["combined_score"] = final_score
+            merged_results[idx]["confidence_score"] = final_score
             merged_results[idx]["rerank_score"] = score
         merged_results.sort(key=lambda x: x.get("combined_score", 0), reverse=True)
     except Exception as e:
@@ -238,7 +249,7 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
 
 def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
     """Run PostgreSQL full-text search (tsvector) on chunks from visible documents."""
-    from sqlalchemy import text
+    from sqlalchemy import text, bindparam
 
     if not visible_doc_ids:
         return []
@@ -265,13 +276,13 @@ def _postgres_ts_search(query: str, visible_doc_ids: set[int], db, top_k: int = 
             ORDER BY rank DESC
             LIMIT :limit
             """
-        )
+        ).bindparams(bindparam("doc_ids", expanding=True))
 
         result = db.execute(
             sql,
             {
                 "query": query,
-                "doc_ids": tuple(visible_doc_ids),
+                "doc_ids": list(visible_doc_ids),
                 "limit": top_k,
             },
         )
@@ -416,24 +427,30 @@ def _merge_results(
 
     for m in merged:
         cid = m["chunk_id"]
-        has_sem = cid in semantic_ranks
-        has_bm = cid in bm25_ranks
-        max_possible = 0.0
-        if has_sem:
-            max_possible += 1.0 / (k + 1)
-        if has_bm:
-            max_possible += 1.0 / (k + 1)
+        sem_score = float(m.get("semantic_score", 0.0) or 0.0)
 
-        norm_rrf = m["rrf_score"] / max_possible if max_possible > 0 else 0.0
+        if sem_score > 0:
+            base_score = sem_score
+            if cid in bm25_ranks:
+                bm25_rank = bm25_ranks[cid]
+                bm25_boost = max(0.0, 0.08 * (1.0 - (bm25_rank - 1) / max(len(bm25_results), 1)))
+                base_score = min(0.98, base_score + bm25_boost)
+        else:
+            bm25_rank = bm25_ranks.get(cid, len(bm25_results) + 1)
+            base_score = max(0.40, 0.85 - (bm25_rank - 1) * 0.05)
+
         meta_boost = 0.0
         access_level = m.get("access_level", "")
         if access_level == "internal":
-            meta_boost = 0.05
+            meta_boost = 0.02
         elif access_level == "confidential":
-            meta_boost = 0.08
+            meta_boost = 0.03
         elif access_level == "restricted":
-            meta_boost = 0.1
-        m["combined_score"] = norm_rrf + meta_boost
+            meta_boost = 0.04
+
+        final_combined = round(min(0.98, base_score + meta_boost), 4)
+        m["combined_score"] = final_combined
+        m["confidence_score"] = final_combined
 
     merged.sort(key=lambda x: x.get("combined_score", 0), reverse=True)
 

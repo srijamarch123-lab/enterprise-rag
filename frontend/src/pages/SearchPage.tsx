@@ -27,6 +27,26 @@ interface SearchResult {
   filename?: string
 }
 
+function formatSearchScore(r: SearchResult): string {
+  const score = typeof r.confidence_score === 'number' && r.confidence_score > 0
+    ? r.confidence_score
+    : typeof r.combined_score === 'number' && r.combined_score > 0
+      ? r.combined_score
+      : typeof r.semantic_score === 'number' && r.semantic_score > 0
+        ? r.semantic_score
+        : typeof r.score === 'number' && r.score > 0
+          ? (r.score > 1 ? r.score / 100 : r.score)
+          : null
+
+  if (score !== null) {
+    return `${(score * 100).toFixed(1)}% match`
+  }
+  if (typeof r.bm25_score === 'number') {
+    return `BM25: ${r.bm25_score.toFixed(1)}`
+  }
+  return 'Match'
+}
+
 export default function SearchPage() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -130,13 +150,7 @@ export default function SearchPage() {
                       </div>
 
                       <span className="search-score-badge" title="Confidence score">
-                        {typeof r.confidence_score === 'number'
-                          ? `${(r.confidence_score * 100).toFixed(1)}% confidence`
-                          : r.combined_score
-                            ? `${(r.combined_score * 100).toFixed(1)}%`
-                            : r.search_type === 'semantic'
-                              ? `${(r.semantic_score ? r.semantic_score * 100 : 0).toFixed(1)}%`
-                              : `BM25: ${r.bm25_score?.toFixed(1) || 0}`}
+                        {formatSearchScore(r)}
                       </span>
                     </div>
 
