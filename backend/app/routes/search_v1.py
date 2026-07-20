@@ -496,13 +496,25 @@ def search(
                 eq_vector = embed_query(eq_normalized)
                 if not eq_vector:
                     continue
-                hits = client.query_points(
-                    collection_name=settings.qdrant_collection_name,
-                    query=eq_vector,
-                    query_filter=query_filter,
-                    limit=top_k,
-                    with_payload=True,
-                ).points
+                try:
+                    hits = client.query_points(
+                        collection_name=settings.qdrant_collection_name,
+                        query=eq_vector,
+                        query_filter=query_filter,
+                        limit=top_k,
+                        with_payload=True,
+                    ).points
+                except Exception as conn_err:
+                    logger.warning("Qdrant query failed, attempting auto-reconnect: %s", conn_err)
+                    client = _get_qdrant(force_reconnect=True)
+                    hits = client.query_points(
+                        collection_name=settings.qdrant_collection_name,
+                        query=eq_vector,
+                        query_filter=query_filter,
+                        limit=top_k,
+                        with_payload=True,
+                    ).points
+
                 for hit in hits:
                     if hit.id not in seen_points:
                         seen_points.add(hit.id)

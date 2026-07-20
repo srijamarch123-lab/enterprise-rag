@@ -137,6 +137,7 @@ class LLMService:
             raise
 
     def stream_chat_completion(self, messages: List[dict[str, str]], max_tokens: int = 1024):
+        tokens_yielded = False
         # Try OpenAI streaming first
         if self._openai_client:
             try:
@@ -150,22 +151,22 @@ class LLMService:
                 for chunk in response:
                     content = chunk.choices[0].delta.content if chunk.choices else None
                     if content:
+                        tokens_yielded = True
                         yield content
                 return
-            except RateLimitError as e:
-                if "insufficient_quota" in str(e):
-                    logger.warning("OpenAI quota exhausted, falling back to Groq stream")
-                else:
-                    logger.warning("OpenAI rate limit, falling back to Groq stream: %s", e)
             except Exception as e:
-                logger.warning("OpenAI stream failed, falling back to Groq: %s", e)
+                if tokens_yielded:
+                    logger.error("OpenAI stream failed mid-flight after tokens were yielded: %s", e)
+                    return
+                logger.warning("OpenAI stream failed before start, falling back to Groq: %s", e)
 
-        # Fallback to Groq streaming
-        try:
-            yield from _groq_stream(messages, max_tokens=max_tokens)
-        except Exception as e:
-            logger.error("Groq stream also failed: %s", e)
-            raise
+        # Fallback to Groq streaming if no tokens have been sent yet
+        if not tokens_yielded:
+            try:
+                yield from _groq_stream(messages, max_tokens=max_tokens)
+            except Exception as e:
+                logger.error("Groq stream also failed: %s", e)
+                raise
 
 
 def generate_suggested_questions(query: str, answer: str, context: str) -> list[str]:

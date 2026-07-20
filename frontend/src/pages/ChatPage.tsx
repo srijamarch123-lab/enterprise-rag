@@ -641,11 +641,11 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                           {m.feedbackSubmitted === 'up' ? <><ThumbsUp size={13} fill={color.success} /> Rated as helpful</> : <><ThumbsDown size={13} fill={color.danger} /> Rated as unhelpful</>}
                         </div>
                       ) : feedbackMsgId === m.id ? (
-                        <div style={{ background: '#fcfbf9', border: `1px dashed ${color.border}`, borderRadius: radius.md, padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '400px' }}>
+                        <div style={{ background: color.surface, border: `1px dashed ${color.border}`, borderRadius: radius.md, padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '400px' }}>
                           <div style={{ fontSize: '12px', fontWeight: 600, color: color.textPrimary }}>{feedbackHelpful ? 'What did you find helpful?' : 'How can we improve this answer?'}</div>
-                          <textarea value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} placeholder="Add optional comments..." style={{ width: '100%', minHeight: '60px', fontSize: '12.5px', padding: '8px', borderRadius: radius.sm, border: `1px solid ${color.border}`, outline: 'none', resize: 'vertical', fontFamily: font }} />
+                          <textarea value={feedbackComment} onChange={(e) => setFeedbackComment(e.target.value)} placeholder="Add optional comments..." style={{ width: '100%', minHeight: '60px', fontSize: '12.5px', padding: '8px', borderRadius: radius.sm, border: `1px solid ${color.border}`, outline: 'none', resize: 'vertical', fontFamily: font, background: color.bg, color: color.textPrimary }} />
                           <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                            <button onClick={() => { setFeedbackMsgId(null); setFeedbackHelpful(null); setFeedbackComment('') }} style={{ padding: '4px 10px', border: `1px solid ${color.border}`, background: 'white', borderRadius: radius.sm, fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={() => { setFeedbackMsgId(null); setFeedbackHelpful(null); setFeedbackComment('') }} style={{ padding: '4px 10px', border: `1px solid ${color.border}`, background: color.surface, color: color.textPrimary, borderRadius: radius.sm, fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
                             <button disabled={feedbackLoading} onClick={handleFeedbackSubmit} style={{ padding: '4px 12px', border: 'none', background: color.chatAccent, color: 'white', borderRadius: radius.sm, fontSize: '12px', fontWeight: 500, cursor: 'pointer' }}>{feedbackLoading ? 'Submitting...' : 'Submit'}</button>
                           </div>
                         </div>

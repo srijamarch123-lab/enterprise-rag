@@ -18,9 +18,9 @@ def _get_model():
 
 _qdrant_client = None
 
-def _get_qdrant() -> QdrantClient:
+def _get_qdrant(force_reconnect: bool = False) -> QdrantClient:
     global _qdrant_client
-    if _qdrant_client is None:
+    if _qdrant_client is None or force_reconnect:
         _qdrant_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
     return _qdrant_client
 

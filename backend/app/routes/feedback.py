@@ -95,13 +95,12 @@ def list_feedback(
 
         # Retrieve corresponding user query
         user_query = None
-        if msg and msg.session:
+        if msg and msg.session_id:
             prev_msg = db.query(ChatMessage).filter(
                 ChatMessage.session_id == msg.session_id,
                 ChatMessage.role == "user",
-                ChatMessage.created_at <= msg.created_at,
                 ChatMessage.id < msg.id
-            ).order_by(ChatMessage.created_at.desc()).first()
+            ).order_by(ChatMessage.id.desc()).first()
             if prev_msg:
                 user_query = prev_msg.content
 

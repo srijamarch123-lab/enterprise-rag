@@ -201,6 +201,22 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
             return {"id": doc.id, "filename": f["name"], "skipped": False}
         except Exception as e:
             thread_db.rollback()
+            try:
+                failed_doc = Document(
+                    filename=f["name"],
+                    original_filename=f["name"],
+                    file_path="",
+                    file_type=f.get("file_type", "unknown"),
+                    file_size=0,
+                    source="drive",
+                    drive_file_id=f.get("drive_file_id"),
+                    status="failed",
+                    extraction_error=str(e),
+                )
+                thread_db.add(failed_doc)
+                thread_db.commit()
+            except Exception:
+                thread_db.rollback()
             return {"filename": f["name"], "error": str(e)}
         finally:
             thread_db.close()
