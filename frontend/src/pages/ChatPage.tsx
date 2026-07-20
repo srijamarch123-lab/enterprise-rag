@@ -167,7 +167,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         setSessionDoc(null)
         setSessionDrive(null)
       }
-    } catch {}
+    } catch (err: any) { alert("Delete failed: " + (err?.response?.data?.detail || err?.message)) }
   }
 
   const handleSend = async (e?: React.FormEvent, overrideQuery?: string) => {
@@ -380,20 +380,20 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     try {
       await api.patch(`/chat/sessions/${sessionId}`, { title: newTitle })
       setConversations(prev => prev.map(c => c.id === sessionId ? { ...c, title: newTitle } : c))
-    } catch {}
+    } catch (err: any) { alert("Delete failed: " + (err?.response?.data?.detail || err?.message)) }
   }
 
   const handleDelete = async (sessionId: string) => {
     if (!window.confirm('Delete this chat?')) return
     try {
-      await api.delete(`/chat/sessions/${sessionId}`)
-      setConversations(prev => prev.filter(c => c.id !== sessionId))
+      await api.delete(`/chat/sessions/${Number(sessionId)}`)
+      setConversations(prev => prev.filter(c => String(c.id) !== String(sessionId)))
       if (activeId === sessionId) {
         const remaining = conversations.filter(c => c.id !== sessionId)
         if (remaining.length > 0) { setActiveId(remaining[0].id); loadSessionMessages(remaining[0].id) }
         else handleNewChat()
       }
-    } catch {}
+    } catch (err: any) { alert("Delete failed: " + (err?.response?.data?.detail || err?.message)) }
   }
 
   return (
@@ -607,7 +607,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                                   <span className="chat-page-result-badge">{r.search_type}</span>
                                 </div>
                                 <div className="chat-page-result-score">
-                                  <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{pct.toFixed(0)}%</span>
+                                  <span className={`chat-page-result-percent ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`}>{Math.min(pct, 99).toFixed(0)}%</span>
                                   <progress value={Math.min(pct, 100)} max={100} className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`} />
                                 </div>
                               </div>

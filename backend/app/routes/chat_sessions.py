@@ -291,7 +291,7 @@ def stream_chat(
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-@router.delete("/chat/sessions/{session_id}")
+@router.delete("/sessions/{session_id}")
 def delete_session(
     session_id: int,
     current_user=Depends(get_current_user),

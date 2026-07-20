@@ -325,7 +325,7 @@ def _calculate_combined_score(item: dict, semantic_max: float, bm25_max: float) 
     elif access_level == "restricted":
         meta_boost = 0.1
 
-    return base_score + meta_boost
+    return min(base_score + meta_boost, 1.0)
 
 
 def _merge_results(
