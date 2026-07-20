@@ -385,7 +385,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     if (!window.confirm('Delete this chat?')) return
     try {
       await api.delete(`/chat/sessions/${Number(sessionId)}`)
-      setConversations(prev => prev.filter(c => c.id !== sessionId))
+      setConversations(prev => prev.filter(c => String(c.id) !== String(sessionId)))
       if (activeId === sessionId) {
         const remaining = conversations.filter(c => c.id !== sessionId)
         if (remaining.length > 0) { setActiveId(remaining[0].id); loadSessionMessages(remaining[0].id) }
