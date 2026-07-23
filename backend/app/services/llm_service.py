@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import os
 from typing import Any, Iterable, List, Optional
 import tiktoken
@@ -19,7 +19,7 @@ Format your response clearly using bullet points and short paragraphs.
 Keep the answer concise and directly relevant to the question asked.
 At the end, add a brief "Sources:" line listing only the document names used."""
 
-MAX_CONTEXT_TOKENS = 3000
+MAX_CONTEXT_TOKENS = 6000
 
 
 def count_tokens(text: str) -> int:
