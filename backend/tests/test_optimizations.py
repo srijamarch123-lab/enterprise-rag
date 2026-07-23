@@ -77,8 +77,17 @@ class OptimizationsTests(unittest.TestCase):
         """Verify extractor runs fallback OCR page-by-page."""
         from pathlib import Path
         with patch("app.services.extractor._ocr_pdf_page_fallback") as mock_ocr, \
-             patch("pdfplumber.open") as mock_pdf:
+             patch("pdfplumber.open") as mock_pdf, \
+             patch("fitz.open") as mock_fitz:
              
+            # Setup fitz mock
+            mock_fitz_doc = MagicMock()
+            mock_fitz_page = MagicMock()
+            mock_fitz_page.get_text.return_value = ""  # empty text to trigger OCR
+            mock_fitz_doc.__len__.return_value = 2
+            mock_fitz_doc.__iter__.return_value = [mock_fitz_page, mock_fitz_page]
+            mock_fitz.return_value = mock_fitz_doc
+            
             # Setup pdfplumber mock
             mock_pdf_instance = MagicMock()
             mock_page = MagicMock()

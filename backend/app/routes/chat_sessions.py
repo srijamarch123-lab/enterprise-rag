@@ -88,6 +88,20 @@ def get_session(
     ).all() if message_ids else []
     feedback_map = {f.message_id: ("up" if f.is_helpful else "down") for f in feedbacks}
 
+    def normalize_filename(name: str) -> str:
+        if not name:
+            return ""
+        import re
+        try:
+            b = name.encode('latin-1')
+            name = b.decode('cp1252')
+        except Exception:
+            pass
+        name = name.replace('\x96', '-')
+        name = name.replace('\u2013', '-')
+        name = name.replace('\u2014', '-')
+        return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
+
     def _enrich_results(res_list):
         if not isinstance(res_list, list):
             return res_list
@@ -101,10 +115,17 @@ def get_session(
             filename = r_copy.get("filename")
             doc = None
             
-            # 1. Match document by filename (original_filename in SQLite) first to avoid ID mismatches
+            # 1. Match document by normalized filename (original_filename in SQLite) first to avoid ID mismatches
             if filename:
-                doc = db.query(Document).filter(Document.original_filename == filename).first()
-            if not doc and doc_id:
+                norm_q = normalize_filename(filename)
+                all_docs = db.query(Document).all()
+                for d in all_docs:
+                    if normalize_filename(d.original_filename) == norm_q:
+                        doc = d
+                        break
+            # 2. DO NOT fall back to doc_id if filename is present but failed to match (stale Qdrant document)
+            # Only use doc_id fallback if filename is completely missing/empty
+            if not doc and doc_id and not filename:
                 doc = db.query(Document).filter(Document.id == doc_id).first()
                 
             if doc:

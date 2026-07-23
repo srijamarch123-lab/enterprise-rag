@@ -458,6 +458,21 @@ def _merge_results(
     return results if has_answer else [], has_answer
 
 
+def normalize_filename(name: str) -> str:
+    if not name:
+        return ""
+    import re
+    try:
+        b = name.encode('latin-1')
+        name = b.decode('cp1252')
+    except Exception:
+        pass
+    name = name.replace('\x96', '-')
+    name = name.replace('\u2013', '-')
+    name = name.replace('\u2014', '-')
+    return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
+
+
 def search(
     req: SearchRequest,
     current_user: User = Depends(get_current_user),
@@ -551,11 +566,17 @@ def search(
             filename = r.get("filename")
             doc = None
             
-            # 1. Match document by user-facing original filename first to bypass SQLite/Qdrant ID discrepancies
+            # 1. Match document by normalized original filename first to bypass SQLite/Qdrant ID discrepancies
             if filename:
-                doc = db.query(Document).filter(Document.original_filename == filename).first()
-            # 2. Fall back to document_id if filename match fails
-            if not doc and doc_id:
+                norm_q = normalize_filename(filename)
+                all_docs = db.query(Document).all()
+                for d in all_docs:
+                    if normalize_filename(d.original_filename) == norm_q:
+                        doc = d
+                        break
+            # 2. DO NOT fall back to doc_id if filename is present but failed to match (stale Qdrant document)
+            # Only fall back to doc_id if filename is completely empty/missing
+            if not doc and doc_id and not filename:
                 doc = db.query(Document).filter(Document.id == doc_id).first()
                 
             if doc:

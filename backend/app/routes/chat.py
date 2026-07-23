@@ -89,6 +89,21 @@ def _make_chat_filter(
     return base
 
 
+def normalize_filename(name: str) -> str:
+    if not name:
+        return ""
+    import re
+    try:
+        b = name.encode('latin-1')
+        name = b.decode('cp1252')
+    except Exception:
+        pass
+    name = name.replace('\x96', '-')
+    name = name.replace('\u2013', '-')
+    name = name.replace('\u2014', '-')
+    return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
+
+
 @router.post("/chat")
 def chat(
     req: ChatRequest,
@@ -161,10 +176,26 @@ def chat(
         )
 
         for r in merged_results:
-            if r.get("document_id"):
-                doc = db.query(Document).filter(Document.id == r["document_id"]).first()
-                if doc:
-                    r["file_path"] = doc.file_path
+            filename = r.get("filename")
+            doc_id = r.get("document_id")
+            doc = None
+            if filename:
+                norm_q = normalize_filename(filename)
+                all_docs = db.query(Document).all()
+                for d in all_docs:
+                    if normalize_filename(d.original_filename) == norm_q:
+                        doc = d
+                        break
+            if not doc and doc_id and not filename:
+                doc = db.query(Document).filter(Document.id == doc_id).first()
+                
+            if doc:
+                r["document_id"] = doc.id
+                r["file_path"] = doc.file_path
+                r["filename"] = doc.original_filename
+                r["department"] = doc.department or r.get("department")
+                r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
+
             if r.get("chunk_id"):
                 chunk_row = db.query(Chunk).filter(Chunk.id == r["chunk_id"]).first()
                 if chunk_row:
