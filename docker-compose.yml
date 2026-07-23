@@ -20,6 +20,11 @@ services:
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     depends_on:
       - qdrant
+    volumes:
+      - ./backend/rag_demo.db:/app/rag_demo.db
+      - ./backend/uploads:/app/uploads
+      - ./backend/credentials.json:/app/credentials.json
+
 
   frontend:
     build: ./frontend
