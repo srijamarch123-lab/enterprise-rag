@@ -1,4 +1,6 @@
-from pydantic_settings import BaseSettings
+import os
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -27,7 +29,7 @@ class Settings(BaseSettings):
     # App
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 50
-    allowed_extensions: str = "pdf,docx,pptx,txt,png,jpg,jpeg,csv,xlsx,xls,md,json,html,htm,yaml,yml,xml,log,py,js,ts,tsx,jsx,java,cpp,cs,go,rs,sh,rtf"
+    allowed_extensions: str = "pdf,docx,doc,pptx,ppt,txt,png,jpg,jpeg,csv,xlsx,xls,md,json,html,htm,yaml,yml,xml,log,py,js,ts,tsx,jsx,java,cpp,cs,go,rs,sh,rtf"
     cors_allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://enterprise-rag-frontend-ez1k.onrender.com"
 
     # Embedding
@@ -52,16 +54,17 @@ class Settings(BaseSettings):
     def allowed_extensions_list(self) -> list[str]:
         return [ext.strip() for ext in self.allowed_extensions.split(",")]
 
-    class Config:
-        import os
-        from pathlib import Path
-        
-        env_file = ".env"
-        if not os.path.exists(env_file):
-            fallback = Path(__file__).parent.parent.parent / ".env"
-            if fallback.exists():
-                env_file = str(fallback)
-        env_file_encoding = "utf-8"
+    _env_file = ".env"
+    if not os.path.exists(_env_file):
+        _fallback = Path(__file__).parent.parent.parent / ".env"
+        if _fallback.exists():
+            _env_file = str(_fallback)
+
+    model_config = SettingsConfigDict(
+        env_file=_env_file,
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
 
 @lru_cache()

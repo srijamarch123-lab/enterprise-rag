@@ -21,7 +21,9 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 SUPPORTED_MIME_TYPES = {
     "application/pdf": "pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/msword": "doc",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "application/vnd.ms-powerpoint": "ppt",
     "text/plain": "txt",
     "image/png": "png",
     "image/jpeg": "jpeg",

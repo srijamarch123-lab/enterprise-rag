@@ -35,9 +35,15 @@ def extract_text(file_path: str, file_type: str) -> tuple[str, int | None]:
         return _extract_pdf(path)
     if ext == "docx":
         return _extract_docx(path)
+    if ext == "doc":
+        return _extract_doc(path)
     if ext == "pptx":
         return _extract_pptx(path)
-    if ext in ["txt", "json", "yaml", "yml", "xml", "log", "py", "js", "ts", "tsx", "jsx", "java", "cpp", "cs", "go", "rs", "sh", "rtf", "ini", "env"]:
+    if ext == "ppt":
+        return _extract_ppt(path)
+    if ext == "rtf":
+        return _extract_rtf(path)
+    if ext in ["txt", "json", "yaml", "yml", "xml", "log", "py", "js", "ts", "tsx", "jsx", "java", "cpp", "cs", "go", "rs", "sh", "ini", "env"]:
         return _extract_txt(path)
     if ext in ["html", "htm"]:
         return _extract_html(path)
@@ -323,4 +329,78 @@ def _extract_xlsx(path: Path) -> tuple[str, None]:
 def _extract_markdown(path: Path) -> tuple[str, None]:
     text = path.read_text(encoding="utf-8", errors="replace")
     return _clean(text), None
+
+
+def _extract_doc(path: Path) -> tuple[str, None]:
+    try:
+        import win32com.client
+        import pythoncom
+        pythoncom.CoInitialize()
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        doc = word.Documents.Open(str(path))
+        text = doc.Content.Text
+        doc.Close()
+        word.Quit()
+        cleaned = _clean(text)
+        if not cleaned:
+            raise ValueError("DOC extraction produced empty text")
+        return cleaned, None
+    except Exception as e:
+        # Fallback to plain text read if Word is not installed
+        try:
+            return _extract_txt(path)
+        except Exception:
+            raise ValueError(f"DOC extraction failed (Word may not be installed): {e}")
+
+
+def _extract_ppt(path: Path) -> tuple[str, int]:
+    try:
+        import win32com.client
+        import pythoncom
+        pythoncom.CoInitialize()
+        powerpoint = win32com.client.Dispatch("PowerPoint.Application")
+        presentation = powerpoint.Presentations.Open(str(path), WithWindow=False)
+        slides = []
+        for slide in presentation.Slides:
+            slide_text = []
+            for shape in slide.Shapes:
+                if shape.HasTextFrame and shape.TextFrame.HasText:
+                    slide_text.append(shape.TextFrame.TextRange.Text)
+                if shape.HasTable:
+                    table = shape.Table
+                    for r in range(1, table.Rows.Count + 1):
+                        row_cells = []
+                        for c in range(1, table.Columns.Count + 1):
+                            cell = table.Cell(r, c)
+                            row_cells.append(cell.Shape.TextFrame.TextRange.Text.replace("\n", " ").strip())
+                        row_str = " | ".join(cell for cell in row_cells if cell)
+                        if row_str:
+                            slide_text.append(row_str)
+            if slide_text:
+                slides.append("\n".join(slide_text))
+        slide_count = presentation.Slides.Count
+        presentation.Close()
+        powerpoint.Quit()
+        full_text = "\n\n".join(slides)
+        cleaned = _clean(full_text)
+        if not cleaned:
+            raise ValueError("PPT extraction produced empty text")
+        return cleaned, slide_count
+    except Exception as e:
+        raise ValueError(f"PPT extraction failed (PowerPoint may not be installed): {e}")
+
+
+def _extract_rtf(path: Path) -> tuple[str, None]:
+    try:
+        from striprtf.striprtf import rtf_to_text
+        raw = path.read_text(encoding="utf-8", errors="replace")
+        text = rtf_to_text(raw)
+        cleaned = _clean(text)
+        if not cleaned:
+            raise ValueError("RTF extraction produced empty text")
+        return cleaned, None
+    except Exception as e:
+        raise ValueError(f"RTF extraction failed: {e}")
+
 

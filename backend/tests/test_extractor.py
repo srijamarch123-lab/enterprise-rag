@@ -118,5 +118,50 @@ class ExtractorTests(unittest.TestCase):
             if temp_img.exists():
                 os.remove(temp_img)
 
+    def test_extract_xlsx(self):
+        """Test Excel document extraction with a programmatically generated xlsx file."""
+        import pandas as pd
+        
+        # Create a simple DataFrame
+        data = {
+            "Name": ["Alice", "Bob"],
+            "Age": [25, 30],
+            "Department": ["HR", "Engineering"]
+        }
+        df = pd.DataFrame(data)
+        
+        temp_xlsx = Path("temp_test_document.xlsx")
+        try:
+            # Write to Excel
+            df.to_excel(temp_xlsx, index=False)
+            
+            # Extract text
+            text, pages = extract_text(str(temp_xlsx), "xlsx")
+            self.assertIsNotNone(text)
+            self.assertIn("--- Sheet: Sheet1 ---", text)
+            self.assertIn("Name | Age | Department", text)
+            self.assertIn("Alice | 25 | HR", text)
+            self.assertIn("Bob | 30 | Engineering", text)
+            self.assertIsNone(pages)
+            print(f"\n  [XLSX Extractor] Successfully extracted text: {text.strip()}")
+        finally:
+            if temp_xlsx.exists():
+                os.remove(temp_xlsx)
+
+    def test_extract_rtf(self):
+        """Test RTF document extraction with programmatically generated rtf file."""
+        rtf_content = r"{\rtf1\ansi\deff0 {\fonttbl {\f0 Courier;}}\f0\fs24 Hello from RTF document.}"
+        temp_rtf = Path("temp_test_document.rtf")
+        try:
+            temp_rtf.write_text(rtf_content, encoding="utf-8")
+            text, pages = extract_text(str(temp_rtf), "rtf")
+            self.assertIsNotNone(text)
+            self.assertIn("Hello from RTF document.", text)
+            self.assertIsNone(pages)
+            print(f"\n  [RTF Extractor] Successfully extracted text: {text.strip()}")
+        finally:
+            if temp_rtf.exists():
+                os.remove(temp_rtf)
+
 if __name__ == "__main__":
     unittest.main()
