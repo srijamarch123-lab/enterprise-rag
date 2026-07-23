@@ -33,6 +33,9 @@ SUPPORTED_MIME_TYPES = {
     "application/vnd.ms-excel": "xls",
     "text/markdown": "md",
     "text/x-markdown": "md",
+    "application/vnd.google-apps.spreadsheet": "xlsx",
+    "application/vnd.google-apps.document": "docx",
+    "application/vnd.google-apps.presentation": "pptx",
 }
 
 
@@ -77,7 +80,29 @@ def _download_and_save(credentials_json: dict, drive_meta: dict) -> tuple[str, s
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     saved_name = f"{uuid.uuid4().hex}.{drive_meta['file_type']}"
     dest = str(UPLOAD_DIR / saved_name)
-    request = service.files().get_media(fileId=drive_meta["drive_file_id"])
+    
+    file_id = drive_meta["drive_file_id"]
+    meta = service.files().get(fileId=file_id, fields="mimeType").execute()
+    mime_type = meta.get("mimeType")
+    
+    if mime_type == "application/vnd.google-apps.spreadsheet":
+        request = service.files().export_media(
+            fileId=file_id,
+            mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    elif mime_type == "application/vnd.google-apps.document":
+        request = service.files().export_media(
+            fileId=file_id,
+            mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    elif mime_type == "application/vnd.google-apps.presentation":
+        request = service.files().export_media(
+            fileId=file_id,
+            mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        )
+    else:
+        request = service.files().get_media(fileId=file_id)
+        
     buf = io.BytesIO()
     downloader = MediaIoBaseDownload(buf, request)
     done = False

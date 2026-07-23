@@ -68,7 +68,27 @@ def ensure_file_exists(doc: Document, db: Session):
 
             os.makedirs(os.path.dirname(normalized_path), exist_ok=True)
 
-            request = service.files().get_media(fileId=doc.drive_file_id)
+            meta = service.files().get(fileId=doc.drive_file_id, fields="mimeType").execute()
+            mime_type = meta.get("mimeType")
+
+            if mime_type == "application/vnd.google-apps.spreadsheet":
+                request = service.files().export_media(
+                    fileId=doc.drive_file_id,
+                    mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            elif mime_type == "application/vnd.google-apps.document":
+                request = service.files().export_media(
+                    fileId=doc.drive_file_id,
+                    mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                )
+            elif mime_type == "application/vnd.google-apps.presentation":
+                request = service.files().export_media(
+                    fileId=doc.drive_file_id,
+                    mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                )
+            else:
+                request = service.files().get_media(fileId=doc.drive_file_id)
+
             buf = io.BytesIO()
             downloader = MediaIoBaseDownload(buf, request)
             done = False

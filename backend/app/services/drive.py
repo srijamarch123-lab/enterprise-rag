@@ -27,6 +27,9 @@ SUPPORTED_MIME_TYPES = {
     "application/vnd.ms-excel": "xls",
     "text/markdown": "md",
     "text/x-markdown": "md",
+    "application/vnd.google-apps.spreadsheet": "xlsx",
+    "application/vnd.google-apps.document": "docx",
+    "application/vnd.google-apps.presentation": "pptx",
 }
 
 
