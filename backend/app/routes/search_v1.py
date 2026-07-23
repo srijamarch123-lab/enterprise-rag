@@ -557,29 +557,6 @@ def search(
         top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
         has_answer = top_score >= CONFIDENCE_THRESHOLD
 
-        # Source attribution: attach file_path and full text from DB for every returned chunk
-        chunk_ids = [r["chunk_id"] for r in merged_results if r.get("chunk_id")]
-        chunk_map = {}
-        if chunk_ids:
-            chunks = db.query(Chunk).filter(Chunk.id.in_(chunk_ids)).all()
-            chunk_map = {chunk.id: chunk for chunk in chunks}
-
-        for r in merged_results:
-            if r.get("document_id"):
-                doc = db.query(Document).filter(Document.id == r["document_id"]).first()
-                if doc:
-                    r["file_path"] = doc.file_path
-                    r["doc_name"] = doc.original_filename
-                    r["filename"] = doc.original_filename
-                    r["department"] = doc.department or r.get("department")
-                    r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
-            chunk = chunk_map.get(r.get("chunk_id"))
-            if chunk:
-                r["text"] = chunk.text
-                r["parent_text"] = chunk.parent_text
-                if not r.get("text_preview"):
-                    r["text_preview"] = (chunk.text or "")[:200]
-
         if not merged_results:
             # Fall back to visible chunks from the database when vector retrieval yields nothing.
             fallback_chunks = (
@@ -620,6 +597,52 @@ def search(
         if merged_results and not has_answer:
             has_answer = True
 
+        # Source attribution & enrichment: resolve documents and chunks correctly from active SQLite DB
+        for r in merged_results:
+            doc_id = r.get("document_id")
+            filename = r.get("filename")
+            doc = None
+            
+            # 1. Match document by user-facing original filename first to bypass SQLite/Qdrant ID discrepancies
+            if filename:
+                doc = db.query(Document).filter(Document.original_filename == filename).first()
+            # 2. Fall back to document_id if filename match fails
+            if not doc and doc_id:
+                doc = db.query(Document).filter(Document.id == doc_id).first()
+                
+            if doc:
+                r["document_id"] = doc.id
+                r["file_path"] = doc.file_path
+                r["doc_name"] = doc.original_filename
+                r["filename"] = doc.original_filename
+                r["department"] = doc.department or r.get("department")
+                r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
+                if doc.drive_file_id:
+                    r["drive_file_id"] = doc.drive_file_id
+                    r["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
+            
+            # 3. Match chunk by chunk_index within the matched document
+            chunk_id = r.get("chunk_id")
+            chunk_index = r.get("chunk_index")
+            chunk = None
+            if doc and chunk_index is not None:
+                chunk = db.query(Chunk).filter(Chunk.document_id == doc.id, Chunk.chunk_index == chunk_index).first()
+            # 4. Fall back to chunk_id if chunk_index lookup fails
+            if not chunk and chunk_id:
+                chunk = db.query(Chunk).filter(Chunk.id == chunk_id).first()
+                
+            if chunk:
+                r["chunk_id"] = chunk.id
+                r["text"] = chunk.parent_text if chunk.parent_text else chunk.text
+                r["parent_text"] = chunk.parent_text
+                r["text_preview"] = chunk.text[:200]
+            else:
+                # Keep Qdrant payload text if not found in SQLite
+                if not r.get("text"):
+                    r["text"] = r.get("parent_text") or r.get("text_preview") or ""
+                if not r.get("text_preview") and r.get("text"):
+                    r["text_preview"] = r["text"][:200]
+
         answer = ""
         if has_answer and merged_results:
             try:
@@ -627,36 +650,6 @@ def search(
             except Exception as e:
                 logger.error("LLM answer generation failed: %s", e)
                 answer = ""
-
-                # Enrich results with drive_file_id from Document table
-        for result in merged_results:
-            doc_id = result.get("document_id")
-            if doc_id:
-                doc = db.query(Document).filter(Document.id == doc_id).first()
-                if doc and doc.drive_file_id:
-                    result["drive_file_id"] = doc.drive_file_id
-                    result["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
-
-        # Enrich results with full chunk text and drive_url from DB
-        for result in merged_results:
-            chunk_id = result.get("chunk_id")
-            if chunk_id:
-                chunk = db.query(Chunk).filter(Chunk.id == chunk_id).first()
-                if chunk and chunk.text:
-                    result["text"] = chunk.parent_text if chunk.parent_text else chunk.text
-                    result["text_preview"] = chunk.text[:200]
-        # Enrich results with drive_url from Document table
-        for result in merged_results:
-            doc_id = result.get("document_id")
-            filename = result.get("filename")
-            doc = None
-            if doc_id:
-                doc = db.query(Document).filter(Document.id == doc_id).first()
-            if not doc and filename:
-                doc = db.query(Document).filter(Document.original_filename == filename).first()
-            if doc and doc.drive_file_id:
-                result["drive_file_id"] = doc.drive_file_id
-                result["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
 
         return {
             "query": req.query,

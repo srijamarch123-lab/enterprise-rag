@@ -79,7 +79,7 @@ def get_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    from app.models import Feedback, Document
+    from app.models import Feedback, Document, Chunk
 
     message_ids = [msg.id for msg in session.messages]
     feedbacks = db.query(Feedback).filter(
@@ -100,16 +100,41 @@ def get_session(
             doc_id = r_copy.get("document_id")
             filename = r_copy.get("filename")
             doc = None
-            if doc_id:
-                doc = db.query(Document).filter(Document.id == doc_id).first()
-            if not doc and filename:
+            
+            # 1. Match document by filename (original_filename in SQLite) first to avoid ID mismatches
+            if filename:
                 doc = db.query(Document).filter(Document.original_filename == filename).first()
+            if not doc and doc_id:
+                doc = db.query(Document).filter(Document.id == doc_id).first()
+                
             if doc:
-                if doc.drive_file_id and not r_copy.get("drive_url"):
+                r_copy["document_id"] = doc.id
+                r_copy["file_path"] = doc.file_path
+                r_copy["doc_name"] = doc.original_filename
+                r_copy["filename"] = doc.original_filename
+                if doc.drive_file_id:
                     r_copy["drive_file_id"] = doc.drive_file_id
                     r_copy["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
-                if doc.file_path and not r_copy.get("file_path"):
-                    r_copy["file_path"] = doc.file_path
+            
+            # 2. Match chunk by index under the resolved document to ensure correct text is retrieved
+            chunk_id = r_copy.get("chunk_id")
+            chunk_index = r_copy.get("chunk_index")
+            chunk = None
+            if doc and chunk_index is not None:
+                chunk = db.query(Chunk).filter(Chunk.document_id == doc.id, Chunk.chunk_index == chunk_index).first()
+            if not chunk and chunk_id:
+                chunk = db.query(Chunk).filter(Chunk.id == chunk_id).first()
+                
+            if chunk:
+                r_copy["chunk_id"] = chunk.id
+                r_copy["text"] = chunk.parent_text if chunk.parent_text else chunk.text
+                r_copy["parent_text"] = chunk.parent_text
+                r_copy["text_preview"] = chunk.text[:200]
+            else:
+                if not r_copy.get("text"):
+                    r_copy["text"] = r_copy.get("parent_text") or r_copy.get("text_preview") or ""
+                if not r_copy.get("text_preview") and r_copy.get("text"):
+                    r_copy["text_preview"] = r_copy["text"][:200]
 
             # Recalibrate score for historical messages if uncalibrated (>= 0.99 or missing)
             cs = float(r_copy.get("confidence_score") or r_copy.get("combined_score") or 0.0)
