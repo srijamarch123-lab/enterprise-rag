@@ -50,24 +50,20 @@ def _rerank_with_cross_encoder(query: str, merged_results: List[Dict[str, Any]])
     if not encoder:
         return merged_results
     try:
-        texts = [r.get("text_preview", "") for r in merged_results]
-        rerank_results = list(encoder.rerank(query, texts))
-        for rr in rerank_results:
-            idx = rr["result_index"]
-            score = float(rr["score"])
+        # Use full text for reranking to avoid keyword dilution in truncated previews
+        texts = [r.get("text") or r.get("parent_text") or r.get("text_preview", "") for r in merged_results]
+        scores = list(encoder.rerank(query, texts))
+        for idx, score in enumerate(scores):
             import math
-            # Temperature scaling T=2.8 for cross-encoder logits
-            ce_prob = 1.0 / (1.0 + math.exp(-score / 2.8))
+            # Temperature scaling T=2.8 for cross-encoder logits with +12.0 bias shift to align with model output distribution
+            ce_prob = 1.0 / (1.0 + math.exp(-(score + 12.0) / 2.8))
             sem = float(merged_results[idx].get("semantic_score", 0.0) or 0.0)
-            if sem > 0:
-                final_score = 0.6 * ce_prob + 0.4 * sem
-            else:
-                final_score = ce_prob
-
+            final_score = 0.6 * ce_prob + 0.4 * sem
+ 
             # Cap score at 0.98 to prevent flat 100%/99% saturation
             final_score = min(0.98, max(0.05, final_score))
             final_score = round(final_score, 4)
-
+ 
             merged_results[idx]["combined_score"] = final_score
             merged_results[idx]["confidence_score"] = final_score
             merged_results[idx]["rerank_score"] = score
@@ -548,6 +544,53 @@ def search(
             confidence_threshold=0.0,
         )
 
+        # Source attribution & enrichment: resolve documents and chunks correctly from active SQLite DB
+        # Run on the merge candidates first so that the Cross-Encoder has access to full texts
+        for r in merged_results:
+            doc_id = r.get("document_id")
+            filename = r.get("filename")
+            doc = None
+            
+            # 1. Match document by user-facing original filename first to bypass SQLite/Qdrant ID discrepancies
+            if filename:
+                doc = db.query(Document).filter(Document.original_filename == filename).first()
+            # 2. Fall back to document_id if filename match fails
+            if not doc and doc_id:
+                doc = db.query(Document).filter(Document.id == doc_id).first()
+                
+            if doc:
+                r["document_id"] = doc.id
+                r["file_path"] = doc.file_path
+                r["doc_name"] = doc.original_filename
+                r["filename"] = doc.original_filename
+                r["department"] = doc.department or r.get("department")
+                r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
+                if doc.drive_file_id:
+                    r["drive_file_id"] = doc.drive_file_id
+                    r["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
+            
+            # 3. Match chunk by chunk_index within the matched document
+            chunk_id = r.get("chunk_id")
+            chunk_index = r.get("chunk_index")
+            chunk = None
+            if doc and chunk_index is not None:
+                chunk = db.query(Chunk).filter(Chunk.document_id == doc.id, Chunk.chunk_index == chunk_index).first()
+            # 4. Fall back to chunk_id if chunk_index lookup fails
+            if not chunk and chunk_id:
+                chunk = db.query(Chunk).filter(Chunk.id == chunk_id).first()
+                
+            if chunk:
+                r["chunk_id"] = chunk.id
+                r["text"] = chunk.parent_text if chunk.parent_text else chunk.text
+                r["parent_text"] = chunk.parent_text
+                r["text_preview"] = chunk.text[:200]
+            else:
+                # Keep Qdrant payload text if not found in SQLite
+                if not r.get("text"):
+                    r["text"] = r.get("parent_text") or r.get("text_preview") or ""
+                if not r.get("text_preview") and r.get("text"):
+                    r["text_preview"] = r["text"][:200]
+
         # Cross-Encoder Reranking
         import os
         if not os.environ.get("DISABLE_RERANKER"):
@@ -596,52 +639,6 @@ def search(
             merged_results = merged_results[:top_k]
         if merged_results and not has_answer:
             has_answer = True
-
-        # Source attribution & enrichment: resolve documents and chunks correctly from active SQLite DB
-        for r in merged_results:
-            doc_id = r.get("document_id")
-            filename = r.get("filename")
-            doc = None
-            
-            # 1. Match document by user-facing original filename first to bypass SQLite/Qdrant ID discrepancies
-            if filename:
-                doc = db.query(Document).filter(Document.original_filename == filename).first()
-            # 2. Fall back to document_id if filename match fails
-            if not doc and doc_id:
-                doc = db.query(Document).filter(Document.id == doc_id).first()
-                
-            if doc:
-                r["document_id"] = doc.id
-                r["file_path"] = doc.file_path
-                r["doc_name"] = doc.original_filename
-                r["filename"] = doc.original_filename
-                r["department"] = doc.department or r.get("department")
-                r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
-                if doc.drive_file_id:
-                    r["drive_file_id"] = doc.drive_file_id
-                    r["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
-            
-            # 3. Match chunk by chunk_index within the matched document
-            chunk_id = r.get("chunk_id")
-            chunk_index = r.get("chunk_index")
-            chunk = None
-            if doc and chunk_index is not None:
-                chunk = db.query(Chunk).filter(Chunk.document_id == doc.id, Chunk.chunk_index == chunk_index).first()
-            # 4. Fall back to chunk_id if chunk_index lookup fails
-            if not chunk and chunk_id:
-                chunk = db.query(Chunk).filter(Chunk.id == chunk_id).first()
-                
-            if chunk:
-                r["chunk_id"] = chunk.id
-                r["text"] = chunk.parent_text if chunk.parent_text else chunk.text
-                r["parent_text"] = chunk.parent_text
-                r["text_preview"] = chunk.text[:200]
-            else:
-                # Keep Qdrant payload text if not found in SQLite
-                if not r.get("text"):
-                    r["text"] = r.get("parent_text") or r.get("text_preview") or ""
-                if not r.get("text_preview") and r.get("text"):
-                    r["text_preview"] = r["text"][:200]
 
         answer = ""
         if has_answer and merged_results:
