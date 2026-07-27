@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-07-27T14:01:26.708074Z",
+  "process_all": {
+    "total": 35,
+    "processed": 0,
+    "extracted": 0,
+    "chunked": 0,
+    "embedded": 0,
+    "failed": 0,
+    "errors": {},
+    "skipped": 35
+  },
+  "qdrant": {
+    "collection": "enterprise_rag",
+    "vectors_count": null,
+    "points_count": 732,
+    "status": "green"
+  }
+}

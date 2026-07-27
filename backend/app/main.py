@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 from pathlib import Path
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -26,13 +27,29 @@ from app.routes.personal_drive import router as personal_drive_router
 
 settings = get_settings()
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+    from app.startup import create_default_admin, reset_stuck_documents
+    create_default_admin()
+    reset_stuck_documents()
+    try:
+        from app.services.embedder import _get_qdrant, ensure_collection
+        ensure_collection(_get_qdrant())
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Qdrant auto-provisioning skipped/failed: %s", exc)
+    yield
+
 app = FastAPI(
     title="Enterprise RAG API",
     description="Document ingestion, chunking, embedding, and semantic search",
     version="1.0.0",
+    lifespan=lifespan,
 )
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -89,19 +106,7 @@ if static_dir.exists():
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-# ─── Startup ─────────────────────────────────────────────────────────────────
-@app.on_event("startup")
-def on_startup():
-    init_db()
-    Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-    from app.startup import create_default_admin
-    create_default_admin()
-    try:
-        from app.services.embedder import _get_qdrant, ensure_collection
-        ensure_collection(_get_qdrant())
-    except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("Qdrant auto-provisioning skipped/failed: %s", exc)
+# ─── Startup (Lifespan handled) ──────────────────────────────────────────────
 
 
 @app.get("/health")

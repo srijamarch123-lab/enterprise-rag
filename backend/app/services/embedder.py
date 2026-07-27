@@ -180,8 +180,6 @@ def embed_document(document: Document, db: Session) -> dict:
 
     if embedded_count > 0 and failed_count == 0:
         document.status = DocumentStatus.embedded
-    elif embedded_count > 0:
-        document.status = DocumentStatus.embedded
     else:
         document.status = DocumentStatus.failed
 

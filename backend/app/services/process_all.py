@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -64,7 +65,7 @@ def ensure_file_exists(doc: Document, db: Session):
 
             SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
             creds = service_account.Credentials.from_service_account_info(creds_json, scopes=SCOPES)
-            service = build("drive", "v3", credentials=creds)
+            service: Any = build("drive", "v3", credentials=creds)
 
             os.makedirs(os.path.dirname(normalized_path), exist_ok=True)
 
@@ -118,6 +119,17 @@ def process_single_document_by_id(doc_id: int):
         if not doc:
             return False, "Document not found"
 
+        # If document is in failed state, restore its status to the last successful stage
+        if doc.status == DocumentStatus.failed:
+            chunk_count = thread_db.query(Chunk).filter(Chunk.document_id == doc_id).count()
+            if not doc.extracted_text:
+                doc.status = DocumentStatus.pending
+            elif chunk_count == 0:
+                doc.status = DocumentStatus.extracted
+            else:
+                doc.status = DocumentStatus.chunked
+            thread_db.commit()
+
         # If already embedded and has chunks, skip
         if doc.status == DocumentStatus.embedded:
             chunk_count = thread_db.query(Chunk).filter(Chunk.document_id == doc_id).count()
@@ -138,7 +150,7 @@ def process_single_document_by_id(doc_id: int):
 
             doc.extracted_text = text
             doc.page_count = pages
-            doc.processed_at = datetime.utcnow()
+            doc.processed_at = datetime.now(timezone.utc).replace(tzinfo=None)
             doc.status = DocumentStatus.extracted
             thread_db.commit()
 
