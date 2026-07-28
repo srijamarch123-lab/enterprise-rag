@@ -15,7 +15,7 @@ class DriveConnectionCreate(BaseModel):
 
 @router.get("")
 def list_connections(db: Session = Depends(get_db), current_user=Depends(require_admin)):
-    connections = db.query(DriveConnection).all()
+    connections = db.query(DriveConnection).order_by(DriveConnection.id).all()
     return [{"id": c.id, "name": c.name, "folder_id": c.folder_id, "created_at": c.created_at, "last_synced": c.last_synced, "email": c.credentials_json.get("client_email", "Unknown") if c.credentials_json else "Unknown"} for c in connections]
 
 @router.post("")
