@@ -119,6 +119,63 @@ def process_single_document_by_id(doc_id: int):
         if not doc:
             return False, "Document not found"
 
+        # Self-healing for unknown/failed file types
+        if not doc.file_type or doc.file_type.lower() in ("unknown", "unspecified") or doc.status == DocumentStatus.failed:
+            # 1. Try to infer from original_filename or file_path or filename
+            for name_source in (doc.original_filename, doc.file_path, doc.filename):
+                if name_source and "." in name_source:
+                    inferred = name_source.split(".")[-1].lower()
+                    if inferred and inferred != "unknown":
+                        doc.file_type = inferred
+                        thread_db.commit()
+                        break
+
+            # 2. Try to resolve via Google Drive API if still unknown
+            if (not doc.file_type or doc.file_type.lower() in ("unknown", "unspecified")) and doc.drive_file_id:
+                try:
+                    from googleapiclient.discovery import build
+                    from google.oauth2.service_account import Credentials
+                    from app.config.settings import get_settings
+                    import json
+                    import os
+                    from pathlib import Path
+                    
+                    settings = get_settings()
+                    creds_path = settings.google_credentials_path
+                    if not os.path.isabs(creds_path):
+                        fallback = Path(__file__).parent.parent.parent / creds_path
+                        if fallback.exists():
+                            creds_path = str(fallback.resolve())
+
+                    if os.path.exists(creds_path):
+                        with open(creds_path, "r", encoding="utf-8") as f:
+                            creds_json = json.load(f)
+                        creds = Credentials.from_service_account_info(creds_json, scopes=["https://www.googleapis.com/auth/drive.readonly"])
+                        service: Any = build("drive", "v3", credentials=creds)
+                        meta = service.files().get(fileId=doc.drive_file_id, fields="mimeType").execute()
+                        mime_type = meta.get("mimeType")
+                        
+                        from app.routes.drive import SUPPORTED_MIME_TYPES
+                        inferred = SUPPORTED_MIME_TYPES.get(mime_type)
+                        if inferred:
+                            doc.file_type = inferred
+                            old_path = doc.file_path
+                            if old_path:
+                                new_path = os.path.splitext(old_path)[0] + "." + inferred
+                                if os.path.exists(old_path) and old_path != new_path:
+                                    try:
+                                        os.rename(old_path, new_path)
+                                    except Exception:
+                                        pass
+                                doc.file_path = new_path
+                                if doc.filename:
+                                    doc.filename = os.path.splitext(doc.filename)[0] + "." + inferred
+                            doc.status = DocumentStatus.pending
+                            thread_db.commit()
+                except Exception as drive_err:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Could not self-heal unknown Drive file {doc.id}: {drive_err}")
+
         # If document is in failed state, restore its status to the last successful stage
         if doc.status == DocumentStatus.failed:
             chunk_count = thread_db.query(Chunk).filter(Chunk.document_id == doc_id).count()

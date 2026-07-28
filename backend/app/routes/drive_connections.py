@@ -50,15 +50,41 @@ def sync_connection(connection_id: int, background_tasks: BackgroundTasks, db: S
         query = "mimeType != 'application/vnd.google-apps.folder' and trashed = false"
         if conn.folder_id:
             query += f" and '{conn.folder_id}' in parents"
-        results = service.files().list(q=query, fields="files(id,name,mimeType)").execute()
+        results = service.files().list(q=query, fields="files(id,name,mimeType,size)").execute()
         files = results.get("files", [])
+
+        # Map raw files to expected import format with type/extension determination
+        from app.routes.drive import SUPPORTED_MIME_TYPES
+        mapped_files = []
+        for f in files:
+            mime_type = f.get("mimeType", "")
+            file_type = SUPPORTED_MIME_TYPES.get(mime_type)
+            if not file_type:
+                # Try suffix fallback
+                name_parts = f["name"].split(".")
+                if len(name_parts) > 1:
+                    file_type = name_parts[-1].lower()
+                else:
+                    file_type = "unknown"
+            
+            # Only include supported formats
+            if file_type == "unknown":
+                continue
+
+            mapped_files.append({
+                "drive_file_id": f["id"],
+                "name": f["name"],
+                "file_type": file_type,
+                "size": int(f["size"]) if f.get("size") else 0,
+            })
 
         from app.models import Document
         existing_ids = {d.drive_file_id for d in db.query(Document).filter(Document.source == 'drive').all() if d.drive_file_id}
         existing_names = {d.original_filename for d in db.query(Document).all()}
-        new_files = [f for f in files if f['id'] not in existing_ids and f['name'] not in existing_names]
+        new_files = [f for f in mapped_files if f['drive_file_id'] not in existing_ids and f['name'] not in existing_names]
 
         if new_files:
+            # ImportAllRequest expects files with the mapped format (drive_file_id, name, file_type, size)
             req = ImportAllRequest(credentials_json=conn.credentials_json, files=new_files)
             import_all(req, background_tasks=background_tasks, db=db)
 

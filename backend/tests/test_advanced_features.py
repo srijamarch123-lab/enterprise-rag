@@ -84,3 +84,33 @@ class AdvancedFeaturesTests(unittest.TestCase):
         # 3. Assert only active document is present
         self.assertIn(doc_active.id, visible_ids)
         self.assertNotIn(doc_inactive.id, visible_ids)
+
+    @unittest.mock.patch("app.services.process_all.extract_text")
+    @unittest.mock.patch("app.services.process_all.ensure_file_exists")
+    @unittest.mock.patch("app.services.process_all.chunk_document")
+    @unittest.mock.patch("app.services.process_all.embed_document")
+    def test_self_healing_unknown_file_type(self, mock_embed, mock_chunk, mock_ensure_exists, mock_extract):
+        """Verify that process_single_document_by_id self-heals unknown file types from their original filename."""
+        mock_extract.return_value = ("some text content", 1)
+        
+        doc = Document(
+            filename="temp.unknown",
+            original_filename="Enterprise_RAG_Gantt_v4 (1).xlsx",
+            file_path="temp.unknown",
+            file_type="unknown",
+            file_size=100,
+            department="HR",
+            source="drive",
+            is_active=True,
+            version=1
+        )
+        self.db.add(doc)
+        self.db.commit()
+
+        # Patch SessionLocal to use our in-memory DB
+        with unittest.mock.patch("app.services.process_all.SessionLocal", return_value=self.db):
+            from app.services.process_all import process_single_document_by_id
+            process_single_document_by_id(doc.id)
+
+        self.db.refresh(doc)
+        self.assertEqual(doc.file_type, "xlsx")
