@@ -7,6 +7,18 @@ import { useTheme } from "../ThemeContext"
 
 const ROLES = ["admin", "hr", "manager", "employee"]
 
+const formatDateTime = (ts: string | null | undefined) => {
+  if (!ts) return "-";
+  const dateStr = ts.endsWith('Z') || ts.includes('+') ? ts : `${ts}Z`;
+  return new Date(dateStr).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+};
+
+const formatDateOnly = (ts: string | null | undefined) => {
+  if (!ts) return "-";
+  const dateStr = ts.endsWith('Z') || ts.includes('+') ? ts : `${ts}Z`;
+  return new Date(dateStr).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+};
+
 const ACTION_COLORS: Record<string, { bg: string; color: string }> = {
   login:          { bg: '#e8f5ee', color: '#1a5c2e' },
   logout:         { bg: '#f0f0f0', color: '#555' },
@@ -207,7 +219,7 @@ export default function UsersPage() {
                           </span>
                         </td>
                         <td className="px-4 py-2 text-gray-500 text-xs">
-                          {log.timestamp ? new Date(log.timestamp).toLocaleString() : "-"}
+                          {formatDateTime(log.timestamp)}
                         </td>
                         <td className="px-4 py-2 text-gray-500 text-xs font-mono">
                           {log.ip_address || "-"}
@@ -303,10 +315,10 @@ export default function UsersPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString() : "-"}
+                      {formatDateOnly(u.created_at)}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
-                      {u.last_login ? new Date(u.last_login).toLocaleString() : "Never"}
+                      {u.last_login ? formatDateTime(u.last_login) : "Never"}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs font-mono">
                       {u.last_login_ip ?? "-"}
@@ -315,7 +327,7 @@ export default function UsersPage() {
                       {u.login_count ?? 0}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">
-                      {u.password_last_changed ? new Date(u.password_last_changed).toLocaleDateString() : "-"}
+                      {formatDateOnly(u.password_last_changed)}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
                       {u.recent_activity?.slice(0, 2).map((a: any, i: number) => (
@@ -419,7 +431,7 @@ export default function UsersPage() {
                       return (
                         <tr key={log.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-gray-500 text-xs">
-                            {log.timestamp ? new Date(log.timestamp).toLocaleString() : "-"}
+                            {formatDateTime(log.timestamp)}
                           </td>
                           <td className="px-4 py-3 text-gray-800 font-medium">{log.user_email || "System"}</td>
                           <td className="px-4 py-3">

@@ -157,7 +157,11 @@ export default function DocumentsPage() {
                   <td style={{ padding: '10px 14px', color: color.textSecondary }}>{doc.page_count ?? '—'}</td>
                   <td style={{ padding: '10px 14px', color: color.textSecondary }}>{doc.chunk_count ?? '—'}</td>
                   <td style={{ padding: '10px 14px', color: color.textTertiary, fontSize: '11px' }}>
-                    {new Date(doc.uploaded_at).toLocaleDateString()}
+                    {(() => {
+                      if (!doc.uploaded_at) return '—';
+                      const dateStr = doc.uploaded_at.endsWith('Z') || doc.uploaded_at.includes('+') ? doc.uploaded_at : `${doc.uploaded_at}Z`;
+                      return new Date(dateStr).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' });
+                    })()}
                   </td>
                   <td style={{ padding: '10px 14px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <button

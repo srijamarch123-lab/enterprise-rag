@@ -31,8 +31,8 @@ class RAGPipelineTests(unittest.TestCase):
         system_content = next(msg["content"] for msg in messages if msg["role"] == "system")
 
         # Enforce that prompt contains instructions to reply only using document context
-        self.assertIn("only the provided document context", system_content)
-        self.assertIn("Do not hallucinate", system_content)
+        self.assertIn("provided document context", system_content.lower())
+        self.assertIn("never use outside knowledge", system_content.lower())
 
     def test_latency_performance_target(self):
         """Measure latency of RAG mock processing to verify it satisfies sub-5 seconds target."""

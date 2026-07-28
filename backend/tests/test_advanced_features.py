@@ -107,10 +107,16 @@ class AdvancedFeaturesTests(unittest.TestCase):
         self.db.add(doc)
         self.db.commit()
 
-        # Patch SessionLocal to use our in-memory DB
-        with unittest.mock.patch("app.services.process_all.SessionLocal", return_value=self.db):
+        # Patch SessionLocal to use our in-memory DB and prevent close() from expiring the session
+        self.db.close = lambda: None
+        with unittest.mock.patch("app.database.SessionLocal", return_value=self.db):
             from app.services.process_all import process_single_document_by_id
             process_single_document_by_id(doc.id)
-
-        self.db.refresh(doc)
-        self.assertEqual(doc.file_type, "xlsx")
+        
+        # Query again with a new session to ensure state is fetched cleanly
+        new_db = self.SessionLocal()
+        try:
+            doc = new_db.query(Document).filter(Document.id == doc.id).first()
+            self.assertEqual(doc.file_type, "xlsx")
+        finally:
+            new_db.close()

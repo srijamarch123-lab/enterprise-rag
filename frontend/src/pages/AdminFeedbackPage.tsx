@@ -110,7 +110,8 @@ export default function AdminFeedbackPage() {
 
   const fmtDate = (ds: string) => {
     if (!ds) return '-'
-    return new Date(ds).toLocaleString()
+    const dateStr = ds.endsWith('Z') || ds.includes('+') ? ds : `${ds}Z`;
+    return new Date(dateStr).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
   }
 
   const totalVotes = analytics.upvotes + analytics.downvotes

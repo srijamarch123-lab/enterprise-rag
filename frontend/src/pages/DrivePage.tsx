@@ -104,7 +104,11 @@ export default function DrivePage() {
     }
   }
 
-  const fmt = (ts: string | null) => ts ? new Date(ts).toLocaleString() : 'Never'
+  const fmt = (ts: string | null) => {
+    if (!ts) return 'Never';
+    const dateStr = ts.endsWith('Z') || ts.includes('+') ? ts : `${ts}Z`;
+    return new Date(dateStr).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  }
 
   return (
     <div style={{ padding: '32px', fontFamily: 'Inter, system-ui, sans-serif', maxWidth: '960px' }}>
@@ -172,7 +176,7 @@ export default function DrivePage() {
                       <CheckCircle size={15} color={result.new_count > 0 ? '#1a5c2e' : '#7a9a7a'} />
                       <span style={{ fontSize: '13px', fontWeight: 500, color: result.new_count > 0 ? '#1a5c2e' : '#7a9a7a' }}>
                         {result.new_count > 0
-                          ? `${result.new_count} new document(s) found — processing started in background`
+                          ? `${result.new_count} new document(s) found Â— processing started in background`
                           : `No new documents found - everything is up to date (${result.total_in_drive} files in drive)`}
                       </span>
                     </div>

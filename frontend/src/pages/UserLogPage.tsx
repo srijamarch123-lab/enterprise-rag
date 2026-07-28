@@ -49,7 +49,11 @@ export default function UserLogPage() {
     }
   }
 
-  const fmt = (ts: string) => new Date(ts).toLocaleString()
+  const fmt = (ts: string) => {
+    if (!ts) return "";
+    const dateStr = ts.endsWith('Z') || ts.includes('+') ? ts : `${ts}Z`;
+    return new Date(dateStr).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' });
+  }
 
   const hasPrev = page > 0
   const hasNext = logs.length === limit
