@@ -82,7 +82,8 @@ def sync_connection(connection_id: int, background_tasks: BackgroundTasks, db: S
         from app.models import Document
         existing_ids = {d.drive_file_id for d in db.query(Document).filter(Document.source == 'drive').all() if d.drive_file_id}
         existing_names = {d.original_filename for d in db.query(Document).all()}
-        new_files = [f for f in mapped_files if f['drive_file_id'] not in existing_ids and f['name'] not in existing_names]
+        BLOCKED = ['Enterprise_RAG_Proper_Blueprint', 'Enterprise_RAG_PM_Plan', 'Enterprise_RAG_Gantt', 'AI_Document_Search_Presentation', 'Enterprise_RAG_Master']
+        new_files = [f for f in mapped_files if f['drive_file_id'] not in existing_ids and f['name'] not in existing_names and not any(b in f['name'] for b in BLOCKED)]
 
         if new_files:
             # ImportAllRequest expects files with the mapped format (drive_file_id, name, file_type, size)
