@@ -649,7 +649,7 @@ def search(
 
         # Cross-Encoder Reranking
         import os
-        if True:  # Always use reranker for accuracy
+        if False:  # Disabled - causes timeout
             merged_results = _rerank_with_cross_encoder(req.query, merged_results)
         merged_results = merged_results[:RERANK_TOP_K]
         
