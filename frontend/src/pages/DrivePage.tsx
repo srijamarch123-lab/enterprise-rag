@@ -173,7 +173,7 @@ export default function DrivePage() {
                       <span style={{ fontSize: '13px', fontWeight: 500, color: result.new_count > 0 ? '#1a5c2e' : '#7a9a7a' }}>
                         {result.new_count > 0
                           ? `${result.new_count} new document(s) found — processing started in background`
-                          : `No new documents found — everything is up to date (${result.total_in_drive} files in drive)`}
+                          : `No new documents found - everything is up to date (${result.total_in_drive} files in drive)`}
                       </span>
                     </div>
                     {result.new_documents.length > 0 && (

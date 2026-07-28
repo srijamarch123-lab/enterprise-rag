@@ -32,9 +32,10 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     init_db()
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-    from app.startup import create_default_admin, create_drive_connections_table, reset_stuck_documents
+    from app.startup import create_default_admin, create_drive_connections_table, run_migrations, reset_stuck_documents
     create_default_admin()
     create_drive_connections_table()
+    run_migrations()
     reset_stuck_documents()
     try:
         from app.services.embedder import _get_qdrant, ensure_collection

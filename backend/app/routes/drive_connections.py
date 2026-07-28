@@ -15,7 +15,7 @@ class DriveConnectionCreate(BaseModel):
 
 @router.get("")
 def list_connections(db: Session = Depends(get_db), current_user=Depends(require_admin)):
-    connections = db.query(DriveConnection).all()
+    connections = db.query(DriveConnection).order_by(DriveConnection.id).all()
     return [{"id": c.id, "name": c.name, "folder_id": c.folder_id, "created_at": c.created_at, "last_synced": c.last_synced, "email": c.credentials_json.get("client_email", "Unknown") if c.credentials_json else "Unknown"} for c in connections]
 
 @router.post("")
@@ -81,7 +81,7 @@ def sync_connection(connection_id: int, background_tasks: BackgroundTasks, db: S
         from app.models import Document
         existing_ids = {d.drive_file_id for d in db.query(Document).filter(Document.source == 'drive').all() if d.drive_file_id}
         existing_names = {d.original_filename for d in db.query(Document).all()}
-        new_files = [f for f in mapped_files if f['drive_file_id'] not in existing_ids and f['name'] not in existing_names]
+        new_files = [f for f in files if f['id'] not in existing_ids and f['name'] not in existing_names]
 
         if new_files:
             # ImportAllRequest expects files with the mapped format (drive_file_id, name, file_type, size)

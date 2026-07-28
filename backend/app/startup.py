@@ -80,3 +80,29 @@ def create_drive_connections_table():
             print("drive_connections table ready")
     except Exception as e:
         print(f"Drive connections table creation skipped: {e}")
+
+def run_migrations():
+    """Run any missing DB migrations safely."""
+    try:
+        from app.database import engine
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            # Add any missing columns here
+            migrations = [
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1",
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS owner_user_id INTEGER",
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS extracted_text TEXT",
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS extraction_error TEXT",
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS page_count INTEGER",
+                "ALTER TABLE documents ADD COLUMN IF NOT EXISTS processed_at TIMESTAMP",
+            ]
+            for m in migrations:
+                try:
+                    conn.execute(text(m))
+                except Exception:
+                    pass
+            conn.commit()
+            print("Migrations complete")
+    except Exception as e:
+        print(f"Migration error: {e}")
