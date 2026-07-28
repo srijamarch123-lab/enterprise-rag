@@ -66,7 +66,7 @@ export default function DrivePage() {
     setError('')
     try {
       await api.post(`/drive-connections/${id}/sync`)
-      setSuccess('Sync started! Documents will be processed in the background.')
+      setSuccess(`Sync complete! ${res.data.new_count} new document(s) found: ${res.data.new_documents?.join(", ") || "none"}. Processing started in background.`)
       fetchConnections()
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Sync failed')
