@@ -55,7 +55,7 @@ def sync_connection(connection_id: int, background_tasks: BackgroundTasks, db: S
 
         from app.models import Document
         existing_ids = {d.drive_file_id for d in db.query(Document).filter(Document.source == 'drive').all() if d.drive_file_id}
-        existing_names = {d.original_filename for d in db.query(Document).all()}
+        existing_names = {d.original_filename for d in db.query(Document).filter(Document.status == 'embedded').all()}
         new_files = [f for f in files if f['id'] not in existing_ids and f['name'] not in existing_names]
 
         if new_files:
