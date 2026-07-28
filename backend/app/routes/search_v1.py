@@ -112,16 +112,23 @@ def _make_filter(
     department: Optional[str],
     file_type: Optional[str] = None,
     date_range: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Filter:
     base = build_rbac_filter(role)
     from qdrant_client.models import FieldCondition, MatchValue, Range
     import datetime
 
-    if not base.must:
-        base.must = []
+    should_conditions = list(base.should) if base.should else []
+    if user_id is not None:
+        should_conditions.append(
+            FieldCondition(key="owner_id", match=MatchValue(value=user_id))
+        )
+    base.should = should_conditions  # type: ignore
+
+    must_conditions = list(base.must) if base.must else []
 
     if department:
-        base.must.append(
+        must_conditions.append(
             FieldCondition(
                 key="department",
                 match=MatchValue(value=department),
@@ -129,7 +136,7 @@ def _make_filter(
         )
 
     if file_type:
-        base.must.append(
+        must_conditions.append(
             FieldCondition(
                 key="file_type",
                 match=MatchValue(value=file_type.lower().strip()),
@@ -137,7 +144,8 @@ def _make_filter(
         )
 
     if date_range:
-        now = datetime.datetime.utcnow()
+        from datetime import timezone
+        now = datetime.datetime.now(timezone.utc).replace(tzinfo=None)
         delta = None
         if date_range == "today":
             delta = datetime.timedelta(days=1)
@@ -150,12 +158,14 @@ def _make_filter(
 
         if delta:
             start_time = (now - delta).isoformat()
-            base.must.append(
+            must_conditions.append(
                 FieldCondition(
                     key="created_at",
                     range=Range(gte=start_time),
                 )
             )
+
+    base.must = must_conditions  # type: ignore
 
     return base
 
@@ -488,12 +498,22 @@ def search(
         if not normalized:
             raise HTTPException(status_code=400, detail="Query is empty after normalization")
 
-        visible_doc_ids = _get_visible_doc_ids_for_role(str(current_user.role), db)
+        visible_doc_ids = _get_visible_doc_ids_for_role(current_user.role, db)
+        personal_doc_ids = {
+            d.id for d in db.query(Document).filter(Document.owner_user_id == current_user.id).all()
+        }
+        visible_doc_ids = visible_doc_ids | personal_doc_ids
 
         # Query Expansion
         expanded_queries = expand_query(req.query)
 
-        query_filter = _make_filter(str(current_user.role), req.department, req.file_type, req.date_range)
+        query_filter = _make_filter(
+            current_user.role,
+            req.department,
+            req.file_type,
+            req.date_range,
+            user_id=current_user.id
+        )
         top_k = req.limit
 
         semantic_hits: list[Any] = []
@@ -585,7 +605,7 @@ def search(
                 r["doc_name"] = doc.original_filename
                 r["filename"] = doc.original_filename
                 r["department"] = doc.department or r.get("department")
-                r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
+                r["access_level"] = doc.access_level if doc.access_level else r.get("access_level")
                 if doc.drive_file_id:
                     r["drive_file_id"] = doc.drive_file_id
                     r["drive_url"] = f"https://drive.google.com/file/d/{doc.drive_file_id}/view"
@@ -645,11 +665,11 @@ def search(
                         "chunk_index": chunk.chunk_index,
                         "page_number": chunk.page_number,
                         "text_preview": (chunk.text or "")[:200],
-                        "department": doc.department if doc else None,
-                        "access_level": str(doc.access_level) if doc and doc.access_level else None,
-                        "filename": doc.original_filename if doc else None,
-                        "file_path": doc.file_path if doc else None,
-                        "doc_name": doc.original_filename if doc else None,
+                        "department": doc.department if doc is not None else None,
+                        "access_level": doc.access_level if (doc is not None and doc.access_level) else None,
+                        "filename": doc.original_filename if doc is not None else None,
+                        "file_path": doc.file_path if doc is not None else None,
+                        "doc_name": doc.original_filename if doc is not None else None,
                         "search_type": "bm25",
                         "text": chunk.text,
                         "parent_text": chunk.parent_text,

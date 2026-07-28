@@ -121,3 +121,7 @@ export const extractFileText = (file: File) => {
   form.append('file', file)
   return api.post('/extract-text', form).then((r) => r.data)
 }
+
+export const extractDriveFileText = (credentials_json: object, file: object) =>
+  api.post('/drive/extract-text', { credentials_json, file }).then((r) => r.data)
+

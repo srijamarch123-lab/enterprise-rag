@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown, HardDrive, Upload, X, MoreHorizontal, Pencil, Trash2, Search, PanelLeftClose, PanelLeftOpen, Square, Sun, Moon } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import api, { logout, submitFeedback, extractFileText } from '../services/api'
+import api, { logout, submitFeedback, extractFileText, extractDriveFileText, getDriveFiles } from '../services/api'
 import { useTheme } from '../ThemeContext'
 import './ChatPage.css'
 
@@ -57,6 +57,10 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const [sessionDrive, setSessionDrive] = useState<{ label: string } | null>(null)
   const [sessionDoc, setSessionDoc] = useState<{ filename: string; text: string } | null>(null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
+  const [driveFolderId, setDriveFolderId] = useState('')
+  const [driveFiles, setDriveFiles] = useState<any[]>([])
+  const [driveLoading, setDriveLoading] = useState(false)
+  const [driveCredentials, setDriveCredentials] = useState<any>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [groupBy, setGroupBy] = useState<'none' | 'date'>('none')
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null)
@@ -340,11 +344,46 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     setDriveError('')
     try {
       const parsed = JSON.parse(driveJson)
-      setSessionDrive({ label: parsed.client_email || 'Drive connected' })
-      setShowDriveModal(false)
-      setDriveJson('')
+      setDriveCredentials(parsed)
+      setDriveFiles([])
+      setDriveError('')
     } catch {
       setDriveError('Invalid JSON. Paste your service account credentials.')
+    }
+  }
+
+  const handleBrowseDrive = async () => {
+    if (!driveCredentials) return
+    setDriveLoading(true)
+    setDriveError('')
+    try {
+      const files = await getDriveFiles(driveCredentials, driveFolderId || undefined)
+      setDriveFiles(files)
+    } catch (err: any) {
+      setDriveError(err.response?.data?.detail || 'Failed to list files from Google Drive')
+    } finally {
+      setDriveLoading(false)
+    }
+  }
+
+  const handleSelectDriveFile = async (f: any) => {
+    if (!driveCredentials) return
+    setDriveLoading(true)
+    setDriveError('')
+    try {
+      const result = await extractDriveFileText(driveCredentials, f)
+      setSessionDoc({ filename: result.filename, text: result.text })
+      setSessionDrive({ label: result.filename })
+      setShowDriveModal(false)
+      // Reset credentials/files state for next time
+      setDriveCredentials(null)
+      setDriveFiles([])
+      setDriveFolderId('')
+      setDriveJson('')
+    } catch (err: any) {
+      setDriveError(err.response?.data?.detail || 'Failed to connect document from Drive')
+    } finally {
+      setDriveLoading(false)
     }
   }
 
@@ -725,21 +764,126 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       {/* Drive modal */}
       {showDriveModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-          <div style={{ background: color.surface, borderRadius: radius.lg, padding: '24px', width: '480px', maxWidth: '90vw', boxShadow: '0 8px 40px rgba(0,0,0,0.12)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ background: color.surface, borderRadius: radius.lg, padding: '24px', width: '520px', maxWidth: '90vw', boxShadow: '0 8px 40px rgba(0,0,0,0.12)', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexShrink: 0 }}>
               <div style={{ fontSize: '15px', fontWeight: 600, color: color.textPrimary }}>Connect to Google Drive</div>
-              <button onClick={() => setShowDriveModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: color.textTertiary }}><X size={18} /></button>
+              <button onClick={() => { setShowDriveModal(false); setDriveCredentials(null); setDriveFiles([]); setDriveError(''); setDriveJson(''); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: color.textTertiary }}><X size={18} /></button>
             </div>
-            <div style={{ fontSize: '12px', color: color.textTertiary, marginBottom: '12px' }}>
-              Paste your service account credentials JSON. This connection is only for this chat session.
-            </div>
-            <input type="file" accept=".json" onChange={e => { const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => setDriveJson(ev.target?.result as string); reader.readAsText(file); }} style={{ width: '100%', padding: '10px', border: `1px solid ${color.border}`, borderRadius: radius.sm, fontSize: '13px', cursor: 'pointer' }} />
-            {driveJson && <div style={{ fontSize: '11px', color: color.chatAccent, marginTop: '4px' }}>JSON file loaded successfully</div>}
-            {driveError && <div style={{ color: color.danger, fontSize: '12px', marginTop: '6px' }}>{driveError}</div>}
-            <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowDriveModal(false)} style={{ padding: '8px 16px', border: `1px solid ${color.border}`, borderRadius: radius.sm, background: 'white', fontSize: '13px', cursor: 'pointer', color: color.textSecondary }}>Cancel</button>
-              <button onClick={handleDriveConnect} style={{ padding: '8px 16px', border: 'none', borderRadius: radius.sm, background: color.chatAccent, color: 'white', fontSize: '13px', cursor: 'pointer', fontWeight: 500 }}>Connect</button>
-            </div>
+            
+            {driveError && (
+              <div style={{ color: color.danger, background: isDark ? '#2c1e1e' : '#fcebeb', padding: '8px 12px', borderRadius: radius.sm, fontSize: '12px', marginBottom: '12px', flexShrink: 0 }}>
+                {driveError}
+              </div>
+            )}
+
+            {!driveCredentials ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflowY: 'auto' }}>
+                <div style={{ fontSize: '12px', color: color.textTertiary }}>
+                  Upload your service account credentials JSON. This connection is only for this chat session.
+                </div>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => setDriveJson(ev.target?.result as string);
+                    reader.readAsText(file);
+                  }}
+                  style={{ width: '100%', padding: '10px', border: `1px solid ${color.border}`, borderRadius: radius.sm, fontSize: '13px', cursor: 'pointer', background: isDark ? '#2a2a2a' : '#fff', color: color.textPrimary }}
+                />
+                {driveJson && <div style={{ fontSize: '11px', color: color.chatAccent }}>JSON file loaded successfully</div>}
+                
+                <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end', flexShrink: 0 }}>
+                  <button onClick={() => { setShowDriveModal(false); setDriveError(''); setDriveJson(''); }} style={{ padding: '8px 16px', border: `1px solid ${color.border}`, borderRadius: radius.sm, background: 'white', fontSize: '13px', cursor: 'pointer', color: color.textSecondary }}>Cancel</button>
+                  <button onClick={handleDriveConnect} disabled={!driveJson} style={{ padding: '8px 16px', border: 'none', borderRadius: radius.sm, background: color.chatAccent, color: 'white', fontSize: '13px', cursor: 'pointer', fontWeight: 500, opacity: !driveJson ? 0.6 : 1 }}>Next</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', flex: 1, overflow: 'hidden' }}>
+                <div style={{ fontSize: '12px', color: color.textSecondary, background: color.chatAccentSoft, padding: '8px 12px', borderRadius: radius.sm, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: '8px' }}>Connected: <strong>{driveCredentials.client_email}</strong></span>
+                  <button onClick={() => { setDriveCredentials(null); setDriveFiles([]); setDriveJson(''); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: color.chatAccent, fontSize: '11px', fontWeight: 600, flexShrink: 0 }}>Disconnect</button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                  <input
+                    type="text"
+                    placeholder="Optional Folder ID (from Drive URL)..."
+                    value={driveFolderId}
+                    onChange={e => setDriveFolderId(e.target.value)}
+                    style={{ flex: 1, padding: '8px 12px', border: `1px solid ${color.border}`, borderRadius: radius.sm, fontSize: '12.5px', background: isDark ? '#2a2a2a' : '#fff', color: color.textPrimary }}
+                  />
+                  <button
+                    onClick={handleBrowseDrive}
+                    disabled={driveLoading}
+                    style={{ padding: '8px 16px', border: 'none', borderRadius: radius.sm, background: color.chatAccent, color: 'white', fontSize: '12.5px', cursor: 'pointer', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    {driveLoading ? <Loader2 size={13} className="animate-spin" /> : <HardDrive size={13} />}
+                    Browse
+                  </button>
+                </div>
+
+                <div style={{ flex: 1, overflowY: 'auto', border: `1px solid ${color.border}`, borderRadius: radius.md, background: isDark ? '#1e1e1e' : '#fafafa', display: 'flex', flexDirection: 'column' }}>
+                  {driveFiles.length === 0 ? (
+                    <div style={{ padding: '40px 20px', textAlign: 'center', color: color.textTertiary, fontSize: '12.5px' }}>
+                      {driveLoading ? 'Loading files...' : 'No files loaded. Click Browse to view available files.'}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ padding: '8px 12px', borderBottom: `1px solid ${color.border}`, fontSize: '11px', color: color.textTertiary, fontWeight: 500, flexShrink: 0 }}>
+                        {driveFiles.length} supported files found
+                      </div>
+                      {driveFiles.map((f, i) => (
+                        <div
+                          key={f.drive_file_id}
+                          style={{
+                            padding: '10px 12px',
+                            borderBottom: i < driveFiles.length - 1 ? `1px solid ${color.border}` : 'none',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            fontSize: '12.5px'
+                          }}
+                        >
+                          <FileText size={14} style={{ color: color.chatAccent, flexShrink: 0 }} />
+                          <div style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: color.textPrimary }} title={f.name}>
+                            {f.name}
+                          </div>
+                          <span style={{ fontSize: '10px', color: color.textTertiary, textTransform: 'uppercase', flexShrink: 0 }}>{f.file_type}</span>
+                          <button
+                            onClick={() => handleSelectDriveFile(f)}
+                            disabled={driveLoading}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: radius.sm,
+                              border: `1px solid ${color.chatAccent}`,
+                              background: color.chatAccentSoft,
+                              color: color.chatAccent,
+                              fontSize: '11px',
+                              fontWeight: 500,
+                              cursor: driveLoading ? 'not-allowed' : 'pointer'
+                            }}
+                          >
+                            Select
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', flexShrink: 0, marginTop: '8px' }}>
+                  <button
+                    onClick={() => { setShowDriveModal(false); setDriveCredentials(null); setDriveFiles([]); setDriveError(''); setDriveJson(''); }}
+                    style={{ padding: '8px 16px', border: `1px solid ${color.border}`, borderRadius: radius.sm, background: 'white', fontSize: '13px', cursor: 'pointer', color: color.textSecondary }}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

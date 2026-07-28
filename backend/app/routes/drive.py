@@ -9,9 +9,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Document
+from app.models import Document, User
+from app.services.auth import get_current_user
 from app.config.settings import get_settings
 from app.services.process_all import process_all_documents
+from app.services.extractor import extract_text as service_extract_text
 
 settings = get_settings()
 router = APIRouter(prefix="/api/drive", tags=["drive"])
@@ -82,26 +84,26 @@ def _download_and_save(credentials_json: dict, drive_meta: dict) -> tuple[str, s
     dest = str(UPLOAD_DIR / saved_name)
     
     file_id = drive_meta["drive_file_id"]
-    meta = service.files().get(fileId=file_id, fields="mimeType").execute()
+    meta = service.files().get(fileId=file_id, fields="mimeType").execute()  # type: ignore
     mime_type = meta.get("mimeType")
     
     if mime_type == "application/vnd.google-apps.spreadsheet":
-        request = service.files().export_media(
+        request = service.files().export_media(  # type: ignore
             fileId=file_id,
             mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
     elif mime_type == "application/vnd.google-apps.document":
-        request = service.files().export_media(
+        request = service.files().export_media(  # type: ignore
             fileId=file_id,
             mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
     elif mime_type == "application/vnd.google-apps.presentation":
-        request = service.files().export_media(
+        request = service.files().export_media(  # type: ignore
             fileId=file_id,
             mimeType="application/vnd.openxmlformats-officedocument.presentationml.presentation"
         )
     else:
-        request = service.files().get_media(fileId=file_id)
+        request = service.files().get_media(fileId=file_id)  # type: ignore
         
     buf = io.BytesIO()
     downloader = MediaIoBaseDownload(buf, request)
@@ -124,7 +126,7 @@ def list_files(req: DriveRequest):
         query = " or ".join(f"mimeType='{m}'" for m in SUPPORTED_MIME_TYPES)
         if req.folder_id:
             query = f"({query}) and '{req.folder_id}' in parents and trashed=false"
-        results = service.files().list(
+        results = service.files().list(  # type: ignore
             q=query,
             fields="files(id, name, mimeType, size, modifiedTime)",
             pageSize=100,
@@ -254,3 +256,65 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
     # Auto-process all newly imported documents via background task
     background_tasks.add_task(_run_process_all)
     return results
+
+
+def _run_chunking_and_embedding(doc_id: int):
+    from app.database import SessionLocal
+    from app.services.process_all import process_single_document_by_id
+    try:
+        process_single_document_by_id(doc_id)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed background chunk/embed for personal doc {doc_id}: {e}")
+
+
+class ExtractDriveRequest(BaseModel):
+    credentials_json: dict
+    file: dict
+
+
+@router.post("/extract-text")
+def extract_drive_text(
+    req: ExtractDriveRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        saved_name, dest, size = _download_and_save(req.credentials_json, req.file)
+        text, _ = service_extract_text(dest, req.file["file_type"])
+    except Exception as e:
+        raise HTTPException(500, f"Google Drive text extraction failed: {e}")
+        
+    try:
+        # Create personal document record from Drive
+        doc = Document(
+            filename=saved_name,
+            original_filename=req.file["name"],
+            file_path=dest,
+            file_type=req.file["file_type"],
+            file_size=size,
+            department=None,
+            source="personal_drive",
+            drive_file_id=req.file["drive_file_id"],
+            owner_user_id=current_user.id,
+            extracted_text=text,
+            status="extracted",
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        
+        # Trigger background chunking and embedding
+        background_tasks.add_task(_run_chunking_and_embedding, doc.id)
+    except Exception as db_err:
+        import os
+        if os.path.exists(dest):
+            try:
+                os.remove(dest)
+            except Exception:
+                pass
+        raise HTTPException(500, f"Failed to save Google Drive document record: {db_err}")
+        
+    return {"text": text, "filename": req.file["name"]}
+

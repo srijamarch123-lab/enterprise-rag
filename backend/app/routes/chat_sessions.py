@@ -17,6 +17,32 @@ settings = get_settings()
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+def parse_and_filter_results(content: str, results: list[dict]) -> tuple[list[dict], bool]:
+    if not content:
+        return results, bool(results)
+
+    content_lower = content.lower().strip()
+    if "don't know" in content_lower or "do not know" in content_lower or "no information" in content_lower or "cannot find" in content_lower or "not found" in content_lower:
+        return [], False
+
+    import re
+    # Match "Sources: <list of sources>" or "Source: <list of sources>" case-insensitively
+    match = re.search(r"sources?:?\s*(.*)$", content, re.IGNORECASE)
+    if match:
+        sources_str = match.group(1).strip()
+        parts = re.split(r"[,;\n]", sources_str)
+        filenames = [p.strip().strip("-*\"'").strip().lower() for p in parts if p.strip()]
+        filtered = []
+        for r in results:
+            fname = (r.get("filename") or r.get("doc_name") or "").lower().strip()
+            # If any filename matches a part of parsed sources, include it
+            if any(s in fname or fname in s for s in filenames if s):
+                filtered.append(r)
+        return filtered, bool(filtered)
+
+    return results, bool(results)
+
+
 class CreateSessionRequest(BaseModel):
     title: str | None = None
 
@@ -176,6 +202,13 @@ def get_session(
         meta = dict(message.message_metadata or {})
         if "results" in meta:
             meta["results"] = _enrich_results(meta["results"])
+        
+        # Parse content of assistant messages to fix incorrect sources/has_answer for all chats (even historical ones)
+        if message.role == "assistant":
+            filtered_results, has_answer = parse_and_filter_results(message.content or "", meta.get("results", []))
+            meta["results"] = filtered_results
+            meta["has_answer"] = has_answer
+
         meta["feedbackSubmitted"] = feedback_map.get(message.id)
         formatted_messages.append({
             "id": message.id,
@@ -301,6 +334,7 @@ def stream_chat(
                 yield f"data: {final_text}\n\n"
 
             results = search_response.get("results", [])
+            filtered_results, has_answer = parse_and_filter_results(final_text, results)
 
             # Generate follow-up suggestions using the LLM based on RAG context
             context_text = assemble_context(chunks)
@@ -312,8 +346,8 @@ def stream_chat(
                 content=final_text,
                 message_metadata={
                     "answer": final_text,
-                    "results": results,
-                    "has_answer": search_response.get("has_answer", False),
+                    "results": filtered_results,
+                    "has_answer": has_answer,
                     "suggestions": suggestions,
                 },
             )
@@ -321,7 +355,7 @@ def stream_chat(
             session.updated_at = __import__("datetime").datetime.utcnow()
             session.title = session.title if session.title != "New chat" else (req.content.strip()[:40] or session.title)
             db.commit()
-            yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': results, 'has_answer': search_response.get('has_answer', False), 'suggestions': suggestions})}\n\n"
+            yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': filtered_results, 'has_answer': has_answer, 'suggestions': suggestions})}\n\n"
         except Exception as exc:  # pragma: no cover - defensive fallback
             import logging
             logging.getLogger(__name__).error("Stream error: %s", exc, exc_info=True)
@@ -331,20 +365,23 @@ def stream_chat(
                 pass
             final_text = build_fallback_answer(req.content, chunks)
             suggestions = ["Summarize the sources", "Show the key points", "What other documents relate to this?"]
+            
+            filtered_results, has_answer = parse_and_filter_results(final_text, chunks)
+            
             assistant_message = ChatMessage(
                 session_id=session.id,
                 role="assistant",
                 content=final_text,
                 message_metadata={
                     "answer": final_text,
-                    "results": chunks,
-                    "has_answer": bool(chunks),
+                    "results": filtered_results,
+                    "has_answer": has_answer,
                     "suggestions": suggestions,
                 }
             )
             db.add(assistant_message)
             db.commit()
-            yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': chunks, 'has_answer': bool(chunks), 'suggestions': suggestions})}\n\n"
+            yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': filtered_results, 'has_answer': has_answer, 'suggestions': suggestions})}\n\n"
 
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

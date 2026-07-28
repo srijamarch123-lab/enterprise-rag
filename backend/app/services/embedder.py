@@ -38,13 +38,18 @@ def check_already_embedded(document_id: int, db: Session) -> bool:
         return False
     return all(c.is_embedded for c in chunks)
 
-def _visible_roles_for_access_level(access_level: AccessLevel) -> list[str]:
+def _visible_roles_for_access_level(access_level: AccessLevel | str | None) -> list[str]:
     """
     Role visibility policy:
     - public/internal -> admin, hr, manager, employee
     - confidential -> admin, hr, manager
     - restricted -> admin, hr
     """
+    if isinstance(access_level, str):
+        try:
+            access_level = AccessLevel(access_level)
+        except ValueError:
+            pass
     if access_level in (AccessLevel.public, AccessLevel.internal):
         return [str(UserRole.admin), str(UserRole.hr), str(UserRole.manager), str(UserRole.employee)]
     if access_level == AccessLevel.confidential:
@@ -111,6 +116,7 @@ def embed_document(document: Document, db: Session) -> dict:
                     "file_type": document.file_type,
                     "text_preview": chunk.text[:200],
                     "parent_text": chunk.parent_text,
+                    "owner_id": document.owner_user_id,
                     "created_at": (chunk.created_at or __import__("datetime").datetime.utcnow()).isoformat(),
                 },
             )
@@ -156,6 +162,7 @@ def embed_document(document: Document, db: Session) -> dict:
                         "file_type": document.file_type,
                         "text_preview": chunk.text[:200],
                         "parent_text": chunk.parent_text,
+                        "owner_id": document.owner_user_id,
                         "created_at": (chunk.created_at or __import__("datetime").datetime.utcnow()).isoformat(),
                     },
                 )
@@ -255,7 +262,8 @@ def reprocess_document(document_id: int, db: Session) -> dict:
     doc.extracted_text = text
     doc.page_count = pages
     doc.status = DocumentStatus.extracted
-    doc.processed_at = datetime.datetime.utcnow()
+    from datetime import timezone
+    doc.processed_at = datetime.datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
 
     qdrant_client = _get_qdrant()

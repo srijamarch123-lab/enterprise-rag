@@ -53,8 +53,11 @@ class Document(Base):
     access_level: Mapped[str] = mapped_column(
         Enum(AccessLevel), default=AccessLevel.internal
     )
-    source: Mapped[str] = mapped_column(String(50), default="manual")  # manual | drive
+    source: Mapped[str] = mapped_column(String(50), default="manual")  # manual | drive | personal | personal_drive
     drive_file_id: Mapped[str | None] = mapped_column(String(255))
+    owner_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     # Processing
     status: Mapped[str] = mapped_column(

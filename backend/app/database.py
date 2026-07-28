@@ -61,3 +61,15 @@ def init_db():
                 conn.commit()
     except Exception:
         pass
+
+    # Check if documents table has owner_user_id column, if not add it dynamically
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        doc_columns = [c["name"] for c in inspector.get_columns("documents")]
+        if "owner_user_id" not in doc_columns:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN owner_user_id INTEGER"))
+                conn.commit()
+    except Exception:
+        pass
