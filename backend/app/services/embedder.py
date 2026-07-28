@@ -117,6 +117,7 @@ def embed_document(document: Document, db: Session) -> dict:
                     "text_preview": chunk.text[:200],
                     "parent_text": chunk.parent_text,
                     "owner_id": document.owner_user_id,
+                    "is_active": getattr(document, "is_active", True),
                     "created_at": (chunk.created_at or __import__("datetime").datetime.utcnow()).isoformat(),
                 },
             )
@@ -163,6 +164,7 @@ def embed_document(document: Document, db: Session) -> dict:
                         "text_preview": chunk.text[:200],
                         "parent_text": chunk.parent_text,
                         "owner_id": document.owner_user_id,
+                        "is_active": getattr(document, "is_active", True),
                         "created_at": (chunk.created_at or __import__("datetime").datetime.utcnow()).isoformat(),
                     },
                 )

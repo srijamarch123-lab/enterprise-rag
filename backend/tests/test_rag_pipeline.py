@@ -16,8 +16,8 @@ class RAGPipelineTests(unittest.TestCase):
         # Test fallback answer generator citation mapping
         fallback = build_fallback_answer("What is the travel policy?", chunks)
         self.assertIn("Sources:", fallback)
-        self.assertIn("10", fallback)
-        self.assertIn("11", fallback)
+        self.assertIn("policy_guide.pdf", fallback)
+        self.assertIn("travel_rules.pdf", fallback)
 
     def test_prompt_injection_guard(self):
         """Verify that adversarial instructions do not bypass context boundary guidelines."""

@@ -12,11 +12,13 @@ settings = get_settings()
 
 ENCODING = tiktoken.get_encoding("cl100k_base")
 
-SYSTEM_PROMPT = """You are a helpful enterprise document assistant. Answer the user's question directly and comprehensively using only the provided document context.
+SYSTEM_PROMPT = """You are a helpful enterprise document assistant. Answer the user's question directly, comprehensively, and in extreme detail using only the provided document context.
 Do not hallucinate or use any information not explicitly in the context.
 If the answer cannot be found, respond with: "I don't know based on the provided documents."
-Provide a clear, detailed, and direct answer that fully addresses the question, avoiding overly brief summaries.
-Include explanation and contextual details where relevant to make the answer complete and natural.
+Provide a highly detailed, thorough, and descriptive answer that fully addresses the question. Avoid short, simple, or overly brief summaries. Make sure to:
+1. Explain all related terms, definitions, policies, or procedures mentioned in the context.
+2. Structure your answer logically, using paragraphs, headers, and bullet points or numbered lists where appropriate to make it highly informative and easy to read.
+3. Elaborate on any contextual facts, instructions, timelines, or requirements present in the documents to ensure the explanation is exhaustive and complete.
 At the end, add a brief "Sources:" line listing only the document names used."""
 
 MAX_CONTEXT_TOKENS = 6000
@@ -68,26 +70,26 @@ def _get_groq_client():
         return None
 
 
-def _groq_chat(messages: list[dict], max_tokens: int = 900) -> str:
+def _groq_chat(messages: List[Any], max_tokens: int = 900) -> str:
     client = _get_groq_client()
     if not client:
         raise RuntimeError("Groq client not available")
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=messages,
+        messages=messages,  # type: ignore
         temperature=0.0,
         max_tokens=max_tokens,
     )
     return response.choices[0].message.content.strip()
 
 
-def _groq_stream(messages: list[dict], max_tokens: int = 900):
+def _groq_stream(messages: List[Any], max_tokens: int = 900):
     client = _get_groq_client()
     if not client:
         raise RuntimeError("Groq client not available")
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=messages,
+        messages=messages,  # type: ignore
         temperature=0.0,
         max_tokens=max_tokens,
         stream=True,
@@ -99,7 +101,7 @@ def _groq_stream(messages: list[dict], max_tokens: int = 900):
 
 
 class LLMService:
-    def __init__(self, model: str = None, temperature: float = 0.0, max_retries: int = 3):
+    def __init__(self, model: Optional[str] = None, temperature: float = 0.0, max_retries: int = 3):
         self.model = model or "gpt-4o-mini"
         self.temperature = temperature
         self.max_retries = max_retries
@@ -202,26 +204,105 @@ def generate_suggested_questions(query: str, answer: str, context: str) -> list[
 def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
     if not chunks:
         return "I don't know based on the provided documents."
-    relevant = []
-    source_ids = []
-    for chunk in chunks[:3]:
+    
+    query_lower = query.lower().strip()
+    
+    # 1. Handle "What other documents relate to this?" or "What documents are available?"
+    if "other documents" in query_lower or "what documents" in query_lower or "list documents" in query_lower or "available documents" in query_lower:
+        try:
+            from app.database import SessionLocal
+            from app.models import Document
+            db = SessionLocal()
+            try:
+                docs = db.query(Document).all()
+                doc_names = list(set([d.original_filename for d in docs if d.original_filename]))
+                if doc_names:
+                    doc_list_str = "\n".join([f"- {name}" for name in sorted(doc_names)])
+                    sources_part = f"\n\nSources: {', '.join(doc_names[:5])}"
+                    return f"Based on the system records, the following documents are currently available:\n\n{doc_list_str}{sources_part}"
+            finally:
+                db.close()
+        except Exception:
+            pass
+
+    # Extract all text segments
+    source_names = []
+    paragraphs = []
+    for chunk in chunks:
         text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
+        fname = chunk.get("filename") or chunk.get("doc_name")
+        if fname and fname not in source_names:
+            source_names.append(fname)
         if text:
-            relevant.append(text)
-            doc_id = chunk.get("document_id") or chunk.get("doc_id") or chunk.get("id")
-            if doc_id is not None:
-                doc_str = str(doc_id)
-                if doc_str not in source_ids:
-                    source_ids.append(doc_str)
-    if not relevant:
+            # Split into paragraphs
+            parts = [p.strip() for p in text.split("\n\n") if p.strip()]
+            for p in parts:
+                paragraphs.append((fname, p, chunk.get("page_number")))
+
+    if not paragraphs:
         return "I don't know based on the provided documents."
-    excerpt = " ".join(relevant[:2])
-    excerpt = " ".join(excerpt.split())
-    if len(excerpt) > 600:
-        excerpt = excerpt[:600] + "..."
-    sources_part = ""
-    if source_ids:
-        sources_part = f"\n\nSources: {', '.join(source_ids)}"
+
+    # 2. Handle "Show the key points" or list / bullet requests
+    if "key points" in query_lower or "bullet points" in query_lower or "takeaways" in query_lower:
+        key_points = []
+        for fname, p, page in paragraphs:
+            lines = p.split("\n")
+            for line in lines:
+                line_str = line.strip()
+                if line_str.startswith(("-", "*", "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "•")):
+                    if len(line_str) > 10 and line_str not in key_points:
+                        key_points.append(line_str)
+        if not key_points:
+            # Fallback to first sentence of paragraphs
+            for fname, p, page in paragraphs:
+                sentences = [s.strip() for s in p.split(".") if s.strip()]
+                if sentences:
+                    first_sent = sentences[0]
+                    if len(first_sent) > 15:
+                        key_points.append(f"- {first_sent}.")
+        
+        if key_points:
+            excerpt = "\n".join(key_points[:10])
+            sources_part = f"\n\nSources: {', '.join(source_names)}" if source_names else ""
+            return f"Here are the key points extracted from the documents:\n\n{excerpt}{sources_part}"
+
+    # 3. Handle "Summarize" or summary requests
+    if "summar" in query_lower:
+        summary_sentences = []
+        for fname, p, page in paragraphs:
+            sentences = [s.strip() for s in p.split(".") if s.strip()]
+            for s in sentences[:2]:
+                if len(s) > 20 and s not in summary_sentences:
+                    summary_sentences.append(s)
+        if summary_sentences:
+            excerpt = " ".join(summary_sentences[:6])
+            sources_part = f"\n\nSources: {', '.join(source_names)}" if source_names else ""
+            return f"Summary of the retrieved sources:\n\n{excerpt}{sources_part}"
+
+    # 4. General query: rank paragraphs by keyword overlap with query to find the most relevant response
+    query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 3]
+    scored_paragraphs = []
+    for fname, p, page in paragraphs:
+        p_lower = p.lower()
+        score = sum(1 for w in query_words if w in p_lower)
+        scored_paragraphs.append((score, fname, p, page))
+    
+    # Sort by score descending
+    scored_paragraphs.sort(key=lambda x: x[0], reverse=True)
+    
+    excerpt_parts = []
+    used_sources = []
+    for score, fname, p, page in scored_paragraphs[:3]:
+        page_info = f" (Page {page})" if page else ""
+        excerpt_parts.append(f"### Source: {fname}{page_info}\n{p}")
+        if fname not in used_sources:
+            used_sources.append(fname)
+            
+    excerpt = "\n\n".join(excerpt_parts)
+    if len(excerpt) > 3000:
+        excerpt = excerpt[:3000] + "..."
+        
+    sources_part = f"\n\nSources: {', '.join(used_sources)}" if used_sources else ""
     return f"Based on the available documents:\n\n{excerpt}{sources_part}"
 
 

@@ -288,6 +288,28 @@ def stream_chat(
         for message in session.messages
     ]
 
+    # 1. Define tools for OpenAI/Groq function calling
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "search_documents",
+                "description": "Searches the enterprise document database for relevant chunks, policies, guidelines, and context matching the query.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query/keywords to locate relevant document sections."
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }
+    ]
+
+    # Pre-run search for fallback (used if LLM agent fails or tools are not supported)
     search_request = ChatRequest(
         query=req.content,
         limit=5,
@@ -320,24 +342,129 @@ def stream_chat(
             {"role": "user", "content": req.content.strip()},
         ]
 
+    # Set up ReAct agentic history
+    from app.services.llm_service import SYSTEM_PROMPT, assemble_context
+    agent_messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
+    for msg in history_for_prompt:
+        agent_messages.append({"role": msg["role"], "content": msg["content"]})
+    agent_messages.append({"role": "user", "content": req.content.strip()})
+
+    client = None
+    if settings.openai_api_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=settings.openai_api_key)
+        except Exception:
+            pass
+
+    agent_chunks = list(chunks)
+    agent_ran_tools = False
+
+    if client:
+        # Run agentic tool calling loop (max 3 turns)
+        max_turns = 3
+        turn = 0
+        while turn < max_turns:
+            turn += 1
+            try:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=agent_messages,
+                    tools=tools,
+                    tool_choice="auto",
+                    temperature=0.0,
+                )
+                choice = response.choices[0]
+                message = choice.message
+                
+                if message.tool_calls:
+                    agent_ran_tools = True
+                    tool_calls_payload = []
+                    for tc in message.tool_calls:
+                        tool_calls_payload.append({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        })
+                    agent_messages.append({
+                        "role": "assistant",
+                        "content": message.content,
+                        "tool_calls": tool_calls_payload
+                    })
+                    
+                    for tc in message.tool_calls:
+                        if tc.function.name == "search_documents":
+                            import json
+                            args = json.loads(tc.function.arguments)
+                            search_q = args.get("query", req.content)
+                            
+                            search_req_t = ChatRequest(
+                                query=search_q,
+                                limit=5,
+                                department=req.department,
+                                file_type=req.file_type,
+                                date_range=req.date_range,
+                            )
+                            search_res_t = search(search_req_t, current_user=current_user, db=db)
+                            new_chunks = search_res_t.get("results", [])
+                            
+                            for nc in new_chunks:
+                                if nc.get("chunk_id") not in {c.get("chunk_id") for c in agent_chunks}:
+                                    agent_chunks.append(nc)
+                            
+                            observation = assemble_context(new_chunks)
+                            if not observation:
+                                observation = "No relevant document sections found matching the query."
+                                
+                            agent_messages.append({
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "name": tc.function.name,
+                                "content": observation
+                            })
+                    continue
+                else:
+                    break
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Agentic tool call turn failed, breaking loop: %s", e)
+                break
+
     def event_stream():
         assistant_chunks: list[str] = []
         try:
-            llm = LLMService()
-            for token in llm.stream_chat_completion(prompt_messages, max_tokens=900):
-                assistant_chunks.append(token)
-                yield f"data: {token}\n\n"
+            if client:
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=agent_messages,
+                    temperature=0.0,
+                    stream=True,
+                )
+                for chunk in response:
+                    content = chunk.choices[0].delta.content if chunk.choices else None
+                    if content:
+                        assistant_chunks.append(content)
+                        yield f"data: {content}\n\n"
+            else:
+                llm = LLMService()
+                for token in llm.stream_chat_completion(prompt_messages, max_tokens=900):
+                    assistant_chunks.append(token)
+                    yield f"data: {token}\n\n"
 
             final_text = "".join(assistant_chunks).strip()
             if not final_text:
-                final_text = build_fallback_answer(req.content, chunks)
+                final_text = build_fallback_answer(req.content, agent_chunks)
                 yield f"data: {final_text}\n\n"
 
-            results = search_response.get("results", [])
-            filtered_results, has_answer = parse_and_filter_results(final_text, results)
+            filtered_results, has_answer = parse_and_filter_results(final_text, agent_chunks)
 
             # Generate follow-up suggestions using the LLM based on RAG context
-            context_text = assemble_context(chunks)
+            context_text = assemble_context(agent_chunks)
             suggestions = generate_suggested_questions(req.content, final_text, context_text)
 
             assistant_message = ChatMessage(
@@ -363,10 +490,10 @@ def stream_chat(
                 db.rollback()
             except Exception:
                 pass
-            final_text = build_fallback_answer(req.content, chunks)
+            final_text = build_fallback_answer(req.content, agent_chunks)
             suggestions = ["Summarize the sources", "Show the key points", "What other documents relate to this?"]
             
-            filtered_results, has_answer = parse_and_filter_results(final_text, chunks)
+            filtered_results, has_answer = parse_and_filter_results(final_text, agent_chunks)
             
             assistant_message = ChatMessage(
                 session_id=session.id,

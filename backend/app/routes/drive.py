@@ -158,15 +158,8 @@ def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Sessi
     """
     Downloads file from Drive, saves to disk, creates DB record.
     Returns document ID immediately — frontend handles pipeline.
-    Skips if file with same name already exists.
+    Archives previous version of the file and increments version.
     """
-    # Duplicate check
-    existing = db.query(Document).filter(
-        Document.original_filename == req.file["name"]
-    ).first()
-    if existing:
-        return {"id": existing.id, "filename": req.file["name"], "skipped": True}
-
     try:
         # Save credentials to settings.google_credentials_path
         import json
@@ -177,6 +170,9 @@ def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Sessi
     except Exception as e:
         raise HTTPException(500, f"Download failed: {e}")
 
+    from app.services.versioning import handle_document_versioning
+    version = handle_document_versioning(db, req.file["name"], None)
+
     doc = Document(
         filename=saved_name,
         original_filename=req.file["name"],
@@ -185,6 +181,7 @@ def import_file(req: ImportRequest, background_tasks: BackgroundTasks, db: Sessi
         file_size=size,
         source="drive",
         drive_file_id=req.file["drive_file_id"],
+        version=version,
     )
     db.add(doc)
     db.commit()
@@ -209,12 +206,9 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
     def process_file_import(f):
         thread_db = SessionLocal()
         try:
-            existing = thread_db.query(Document).filter(
-                Document.original_filename == f["name"]
-            ).first()
-            if existing:
-                return {"id": existing.id, "filename": f["name"], "skipped": True}
             saved_name, dest, size = _download_and_save(req.credentials_json, f)
+            from app.services.versioning import handle_document_versioning
+            version = handle_document_versioning(thread_db, f["name"], None)
             doc = Document(
                 filename=saved_name,
                 original_filename=f["name"],
@@ -223,6 +217,7 @@ def import_all(req: ImportAllRequest, background_tasks: BackgroundTasks, db: Ses
                 file_size=size,
                 source="drive",
                 drive_file_id=f["drive_file_id"],
+                version=version,
             )
             thread_db.add(doc)
             thread_db.commit()

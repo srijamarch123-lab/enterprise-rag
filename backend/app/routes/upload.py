@@ -96,6 +96,9 @@ def upload_file(
     ext = _validate_file(file)
     saved_name, file_path, size, actual_ext = _save_file(file, ext)
 
+    from app.services.versioning import handle_document_versioning
+    version = handle_document_versioning(db, file.filename, None, department=department)
+
     doc = Document(
         filename=saved_name,
         original_filename=file.filename,
@@ -104,6 +107,7 @@ def upload_file(
         file_size=size,
         department=department,
         source="manual",
+        version=version,
     )
     db.add(doc)
     db.commit()
@@ -135,10 +139,12 @@ def upload_bulk(
 ):
 
     results = []
+    from app.services.versioning import handle_document_versioning
     for file in files:
         try:
             ext = _validate_file(file)
             saved_name, file_path, size, actual_ext = _save_file(file, ext)
+            version = handle_document_versioning(db, file.filename, None, department=department)
             doc = Document(
                 filename=saved_name,
                 original_filename=file.filename,
@@ -147,6 +153,7 @@ def upload_bulk(
                 file_size=size,
                 department=department,
                 source="manual",
+                version=version,
             )
             db.add(doc)
             db.commit()
@@ -284,3 +291,44 @@ def secure_download(
         media_type="application/octet-stream",
         filename=doc.original_filename
     )
+
+
+@router.get("/documents/{doc_id}/text")
+def get_document_text(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    from app.models import AccessLevel
+    
+    doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # If personal document, owner user must match
+    if doc.source in {"personal", "personal_drive"} and doc.owner_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Forbidden: Access restricted to owner")
+
+    # Access control checks
+    role = str(current_user.role).strip().lower()
+    
+    # 1. Access Level constraints
+    if doc.access_level == AccessLevel.confidential:
+        if role not in ("admin", "hr", "manager"):
+            raise HTTPException(status_code=403, detail="Forbidden: Confidential document")
+    elif doc.access_level == AccessLevel.restricted:
+        if role not in ("admin", "hr") and doc.owner_user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden: Restricted document")
+            
+    # 2. Department constraints (non-admin/non-hr users must match department if doc is department-restricted)
+    if doc.department and role not in ("admin", "hr"):
+        user_dept = (current_user.department or "").strip().lower()
+        doc_dept = doc.department.strip().lower()
+        if user_dept != doc_dept:
+            raise HTTPException(status_code=403, detail=f"Forbidden: Document is restricted to {doc.department} department")
+
+    return {
+        "id": doc.id,
+        "filename": doc.original_filename,
+        "extracted_text": doc.extracted_text or "No text extracted from this document."
+    }

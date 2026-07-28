@@ -44,6 +44,55 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const plusRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const [previewSource, setPreviewSource] = useState<SearchResult | null>(null)
+  const [fullText, setFullText] = useState<string | null>(null)
+  const [loadingFullText, setLoadingFullText] = useState(false)
+  const [viewMode, setViewMode] = useState<'snippet' | 'full'>('snippet')
+
+  useEffect(() => {
+    if (previewSource) {
+      const docId = previewSource.document_id || (previewSource as any).doc_id
+      if (docId) {
+        setLoadingFullText(true)
+        setFullText(null)
+        setViewMode('snippet')
+        api.get(`/documents/${docId}/text`)
+          .then(res => {
+            setFullText(res.data.extracted_text)
+          })
+          .catch(() => {
+            setFullText("Could not load document text or permission denied.")
+          })
+          .finally(() => {
+            setLoadingFullText(false)
+          })
+      } else {
+        setFullText("Document ID not available for full text preview.")
+        setLoadingFullText(false)
+      }
+    } else {
+      setFullText(null)
+    }
+  }, [previewSource])
+
+  const highlightSnippet = (textBody: string, snippet: string) => {
+    if (!snippet || !textBody) return textBody;
+    const index = textBody.toLowerCase().indexOf(snippet.toLowerCase().trim());
+    if (index === -1) {
+      // Fallback: try sentence overlap or return as is
+      return textBody;
+    }
+    const before = textBody.substring(0, index);
+    const matched = textBody.substring(index, index + snippet.length);
+    const after = textBody.substring(index + snippet.length);
+    return (
+      <>
+        {before}
+        <mark style={{ backgroundColor: '#ffe066', padding: '2px 0', borderRadius: '2px', fontWeight: 'bold', color: 'black' }}>{matched}</mark>
+        {after}
+      </>
+    );
+  };
+
   // Filters
   const [filterDept, setFilterDept] = useState('')
   const [filterFileType, setFilterFileType] = useState('')
@@ -891,7 +940,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       {/* Citation Preview Modal */}
       {previewSource && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: '20px' }}>
-          <div style={{ background: color.surface, borderRadius: radius.lg, padding: '24px', width: '600px', maxWidth: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ background: color.surface, borderRadius: radius.lg, padding: '24px', width: '700px', maxWidth: '100%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: `1px solid ${color.border}`, paddingBottom: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <FileText size={18} style={{ color: color.chatAccent }} />
@@ -927,12 +976,65 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                   <strong>Path:</strong> {previewSource.file_path}
                 </div>
               )}
+
+              {/* View Mode Tabs */}
+              <div style={{ display: 'flex', gap: '8px', marginTop: '16px', borderBottom: `1px solid ${color.border}`, paddingBottom: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('snippet')}
+                  style={{
+                    padding: '6px 12px',
+                    border: 'none',
+                    borderRadius: radius.sm,
+                    background: viewMode === 'snippet' ? color.chatAccent : 'transparent',
+                    color: viewMode === 'snippet' ? 'white' : color.textPrimary,
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Context Snippet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('full')}
+                  style={{
+                    padding: '6px 12px',
+                    border: 'none',
+                    borderRadius: radius.sm,
+                    background: viewMode === 'full' ? color.chatAccent : 'transparent',
+                    color: viewMode === 'full' ? 'white' : color.textPrimary,
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Full Document
+                </button>
+              </div>
               
-              <div style={{ marginTop: '16px', borderTop: `1px solid ${color.border}`, paddingTop: '16px' }}>
-                <div style={{ fontWeight: 600, marginBottom: '8px' }}>Matched Context Snippet:</div>
-                <div style={{ background: '#fcfbf9', border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '16px', maxHeight: '300px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: font, fontSize: '13px', lineHeight: 1.5 }}>
-                  {(previewSource as any).parent_text || (previewSource as any).text || previewSource.text_preview}
-                </div>
+              <div style={{ marginTop: '12px' }}>
+                {viewMode === 'snippet' ? (
+                  <>
+                    <div style={{ fontWeight: 600, marginBottom: '8px' }}>Matched Context Snippet:</div>
+                    <div style={{ background: '#fcfbf9', border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '16px', maxHeight: '300px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: font, fontSize: '13px', lineHeight: 1.5 }}>
+                      {(previewSource as any).parent_text || (previewSource as any).text || previewSource.text_preview}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontWeight: 600, marginBottom: '8px' }}>Full Extracted Text (Matched Citation Highlighted):</div>
+                    {loadingFullText ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', color: color.textSecondary, padding: '20px' }}>
+                        <Loader2 size={16} className="animate-spin" /> Loading full document text...
+                      </div>
+                    ) : (
+                      <div style={{ background: '#fcfbf9', border: `1px solid ${color.border}`, borderRadius: radius.md, padding: '16px', maxHeight: '350px', overflowY: 'auto', whiteSpace: 'pre-wrap', fontFamily: font, fontSize: '13px', lineHeight: 1.6 }}>
+                        {highlightSnippet(fullText || '', (previewSource as any).parent_text || (previewSource as any).text || previewSource.text_preview || '')}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>

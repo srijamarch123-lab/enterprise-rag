@@ -125,6 +125,15 @@ def _make_filter(
         )
     base.should = should_conditions  # type: ignore
 
+    must_not_conditions = list(base.must_not) if base.must_not else []
+    must_not_conditions.append(
+        FieldCondition(
+            key="is_active",
+            match=MatchValue(value=False),
+        )
+    )
+    base.must_not = must_not_conditions  # type: ignore
+
     must_conditions = list(base.must) if base.must else []
 
     if department:
@@ -180,7 +189,10 @@ def _get_visible_doc_ids_for_role(role: str, db) -> set[int]:
         allowed_levels = {AccessLevel.public, AccessLevel.internal, AccessLevel.confidential}
     else:
         allowed_levels = {AccessLevel.public, AccessLevel.internal}
-    docs = db.query(Document).filter(Document.access_level.in_(allowed_levels)).all()
+    docs = db.query(Document).filter(
+        Document.access_level.in_(allowed_levels),
+        Document.is_active == True
+    ).all()
     return {d.id for d in docs}
 
 
@@ -500,7 +512,10 @@ def search(
 
         visible_doc_ids = _get_visible_doc_ids_for_role(current_user.role, db)
         personal_doc_ids = {
-            d.id for d in db.query(Document).filter(Document.owner_user_id == current_user.id).all()
+            d.id for d in db.query(Document).filter(
+                Document.owner_user_id == current_user.id,
+                Document.is_active == True
+            ).all()
         }
         visible_doc_ids = visible_doc_ids | personal_doc_ids
 

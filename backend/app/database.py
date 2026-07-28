@@ -71,5 +71,13 @@ def init_db():
             with engine.connect() as conn:
                 conn.execute(text("ALTER TABLE documents ADD COLUMN owner_user_id INTEGER"))
                 conn.commit()
+        if "version" not in doc_columns:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN version INTEGER DEFAULT 1"))
+                conn.commit()
+        if "is_active" not in doc_columns:
+            with engine.connect() as conn:
+                conn.execute(text("ALTER TABLE documents ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+                conn.commit()
     except Exception:
         pass

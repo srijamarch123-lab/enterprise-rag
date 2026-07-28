@@ -66,6 +66,8 @@ class Document(Base):
     extracted_text: Mapped[str | None] = mapped_column(Text)
     extraction_error: Mapped[str | None] = mapped_column(Text)
     page_count: Mapped[int | None] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Timestamps
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

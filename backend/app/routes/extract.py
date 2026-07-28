@@ -68,6 +68,9 @@ async def extract_text(
         raise HTTPException(400, f"Could not extract any text from this file type (.{ext}).")
         
     try:
+        from app.services.versioning import handle_document_versioning
+        version = handle_document_versioning(db, file.filename, current_user.id)
+        
         # Create personal document record
         doc = Document(
             filename=saved_name,
@@ -80,6 +83,7 @@ async def extract_text(
             owner_user_id=current_user.id,
             extracted_text=text,
             status=DocumentStatus.extracted,
+            version=version,
         )
         db.add(doc)
         db.commit()
