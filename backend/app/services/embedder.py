@@ -1,6 +1,6 @@
 import uuid
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, VectorParams, Distance
+from qdrant_client.models import PointStruct, VectorParams, Distance, PointIdsList
 from sqlalchemy.orm import Session
 from fastembed import TextEmbedding
 
@@ -103,7 +103,7 @@ def embed_document(document: Document, db: Session) -> dict:
             point_ids.append(point_id)
             point = PointStruct(
                 id=point_id,
-                vector=vector,
+                vector=vector.tolist(),
                 payload={
                     "chunk_id": chunk.id,
                     "document_id": document.id,
@@ -150,7 +150,7 @@ def embed_document(document: Document, db: Session) -> dict:
                 point_id = str(uuid.uuid4())
                 point = PointStruct(
                     id=point_id,
-                    vector=vector,
+                    vector=vector.tolist(),
                     payload={
                         "chunk_id": chunk.id,
                         "document_id": document.id,
@@ -274,7 +274,7 @@ def reprocess_document(document_id: int, db: Session) -> dict:
     if point_ids:
         qdrant_client.delete(
             collection_name=settings.qdrant_collection_name,
-            points_selector=point_ids,
+            points_selector=PointIdsList(points=point_ids),  # type: ignore
         )
 
     # Perform chunking and database persistence

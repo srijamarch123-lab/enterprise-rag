@@ -87,9 +87,9 @@ def _run_extraction(doc_id: int):
 @limiter.limit(settings.rate_limit_upload)
 def upload_file(
     background_tasks: BackgroundTasks,
+    request: Request,
     file: UploadFile = File(...),
     department: str | None = None,
-    request: Request = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -97,7 +97,7 @@ def upload_file(
     saved_name, file_path, size, actual_ext = _save_file(file, ext)
 
     from app.services.versioning import handle_document_versioning
-    version = handle_document_versioning(db, file.filename, None, department=department)
+    version = handle_document_versioning(db, file.filename or "", None, department=department)
 
     doc = Document(
         filename=saved_name,
@@ -131,9 +131,9 @@ def upload_file(
 @limiter.limit(settings.rate_limit_upload)
 def upload_bulk(
     background_tasks: BackgroundTasks,
+    request: Request,
     files: list[UploadFile] = File(...),
     department: str | None = None,
-    request: Request = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -144,7 +144,7 @@ def upload_bulk(
         try:
             ext = _validate_file(file)
             saved_name, file_path, size, actual_ext = _save_file(file, ext)
-            version = handle_document_versioning(db, file.filename, None, department=department)
+            version = handle_document_versioning(db, file.filename or "", None, department=department)
             doc = Document(
                 filename=saved_name,
                 original_filename=file.filename,
@@ -195,7 +195,7 @@ def list_documents(
             "file_type": d.file_type,
             "file_size": d.file_size,
             "department": d.department,
-            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+            "status": getattr(d.status, "value", d.status),
             "page_count": d.page_count,
             "chunk_count": len(d.chunks) if getattr(d, "chunks", None) is not None else None,
             "uploaded_at": d.uploaded_at,
@@ -218,7 +218,7 @@ def get_document(doc_id: int, db: Session = Depends(get_db)):
         "file_size": doc.file_size,
         "department": doc.department,
         "access_level": doc.access_level,
-        "status": doc.status.value if hasattr(doc.status, "value") else str(doc.status),
+        "status": getattr(doc.status, "value", doc.status),
         "page_count": doc.page_count,
         "extraction_error": doc.extraction_error,
         "uploaded_at": doc.uploaded_at,
@@ -260,7 +260,7 @@ def secure_download(
         raise HTTPException(status_code=404, detail="Document not found")
 
     # Access control checks
-    role = str(current_user.role).strip().lower()
+    role = current_user.role.strip().lower()
     
     # 1. Access Level constraints
     if doc.access_level == AccessLevel.confidential:
@@ -310,7 +310,7 @@ def get_document_text(
         raise HTTPException(status_code=403, detail="Forbidden: Access restricted to owner")
 
     # Access control checks
-    role = str(current_user.role).strip().lower()
+    role = current_user.role.strip().lower()
     
     # 1. Access Level constraints
     if doc.access_level == AccessLevel.confidential:

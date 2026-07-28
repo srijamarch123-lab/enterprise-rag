@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models import ChatMessage, ChatSession, User
 from app.routes.search_v1 import ChatRequest, search
 from app.services.auth import get_current_user
-from app.services.llm_service import build_chat_prompt, build_fallback_answer, LLMService, generate_suggested_questions, assemble_context
+from app.services.llm_service import build_chat_prompt, build_fallback_answer, LLMService, generate_suggested_questions, assemble_context, parse_and_filter_results
 from app.config.settings import get_settings
 from app.services.limiter import limiter
 
@@ -17,30 +17,6 @@ settings = get_settings()
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
-def parse_and_filter_results(content: str, results: list[dict]) -> tuple[list[dict], bool]:
-    if not content:
-        return results, bool(results)
-
-    content_lower = content.lower().strip()
-    if "don't know" in content_lower or "do not know" in content_lower or "no information" in content_lower or "cannot find" in content_lower or "not found" in content_lower:
-        return [], False
-
-    import re
-    # Match "Sources: <list of sources>" or "Source: <list of sources>" case-insensitively
-    match = re.search(r"sources?:?\s*(.*)$", content, re.IGNORECASE)
-    if match:
-        sources_str = match.group(1).strip()
-        parts = re.split(r"[,;\n]", sources_str)
-        filenames = [p.strip().strip("-*\"'").strip().lower() for p in parts if p.strip()]
-        filtered = []
-        for r in results:
-            fname = (r.get("filename") or r.get("doc_name") or "").lower().strip()
-            # If any filename matches a part of parsed sources, include it
-            if any(s in fname or fname in s for s in filenames if s):
-                filtered.append(r)
-        return filtered, bool(filtered)
-
-    return results, bool(results)
 
 
 class CreateSessionRequest(BaseModel):
@@ -294,7 +270,7 @@ def stream_chat(
     ]
 
     # 1. Define tools for OpenAI/Groq function calling
-    tools = [
+    tools: list[Any] = [
         {
             "type": "function",
             "function": {
@@ -354,7 +330,7 @@ def stream_chat(
 
     # Set up ReAct agentic history
     from app.services.llm_service import SYSTEM_PROMPT, assemble_context
-    agent_messages = [
+    agent_messages: list[Any] = [
         {"role": "system", "content": SYSTEM_PROMPT},
     ]
     for msg in history_for_prompt:

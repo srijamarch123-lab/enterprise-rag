@@ -670,8 +670,60 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                 ) : (
                   <div className="chat-page-message-column">
                     {(m.answer || m.content) ? (
-                      <div className="chat-page-message-answer-plain" style={{ color: isDark ? "#f0f0f0" : "#2B2A27" }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{(m.answer || m.content || "").replace(/\n?Sources?:[\s\S]*$/i, "").trim()}</ReactMarkdown>
+                      <div>
+                        {/* Accuracy badge */}
+                        {m.results && m.results.length > 0 && (() => {
+                          const topPct = Math.max(...m.results.map(confidencePercent))
+                          return (
+                            <div style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '6px',
+                              padding: '4px 10px', borderRadius: '12px', fontSize: '11px', fontWeight: 600,
+                              marginBottom: '8px',
+                              background: topPct >= 70 ? (isDark ? '#1a2e1a' : '#e8f5e9') : topPct >= 40 ? (isDark ? '#2e2a1a' : '#fff8e1') : (isDark ? '#2e1a1a' : '#ffebee'),
+                              color: topPct >= 70 ? '#4caf50' : topPct >= 40 ? '#ff9800' : '#f44336',
+                              border: `1px solid ${topPct >= 70 ? '#4caf5040' : topPct >= 40 ? '#ff980040' : '#f4433640'}`,
+                            }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'currentColor' }} />
+                              {topPct >= 70 ? 'High' : topPct >= 40 ? 'Medium' : 'Low'} confidence · {Math.min(topPct, 99).toFixed(0)}%
+                            </div>
+                          )
+                        })()}
+                        <div className="chat-page-message-answer-plain" style={{ color: isDark ? "#f0f0f0" : "#2B2A27" }}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{(m.answer || m.content || "").replace(/\n?Sources?:[\s\S]*$/i, "").trim()}</ReactMarkdown>
+                        </div>
+                        {/* Source chips - clean display of cited sources */}
+                        {m.results && m.results.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '10px', paddingTop: '8px', borderTop: `1px solid ${isDark ? '#333' : '#e0ddd5'}` }}>
+                            <span style={{ fontSize: '11px', color: isDark ? '#888' : '#8B8574', fontWeight: 600, alignSelf: 'center' }}>Sources:</span>
+                            {[...new Set(m.results.map((r: any) => r.doc_name || r.filename).filter(Boolean))].map((name: any, i: number) => {
+                              const matchingResult = m.results!.find((r: any) => (r.doc_name || r.filename) === name)
+                              const pct = matchingResult ? confidencePercent(matchingResult) : 0
+                              return (
+                                <button
+                                  key={i}
+                                  onClick={() => matchingResult && setPreviewSource(matchingResult)}
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: '5px',
+                                    padding: '3px 10px', borderRadius: '14px', fontSize: '11px', fontWeight: 500,
+                                    border: `1px solid ${isDark ? '#3a3a3a' : '#d0dbd0'}`,
+                                    background: isDark ? '#252525' : '#f5f5f0',
+                                    color: isDark ? '#c0c0c0' : '#3a5a3a',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <FileText size={11} />
+                                  {name}
+                                  <span style={{
+                                    fontSize: '10px', fontWeight: 700,
+                                    color: pct >= 70 ? '#4caf50' : pct >= 40 ? '#ff9800' : '#f44336',
+                                  }}>
+                                    {Math.min(pct, 99).toFixed(0)}%
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     ) : loading && m.id === active.messages[active.messages.length - 1]?.id ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8B8574', fontSize: '13px', padding: '4px 0' }}>
@@ -683,7 +735,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
 
                     {m.results && m.results.length > 0 ? (
                       <div className="chat-page-results-list">
-                        <div className="chat-page-results-summary">{m.results.length} source{m.results.length !== 1 ? 's' : ''} found</div>
+                        <div className="chat-page-results-summary">{m.results.length} source{m.results.length !== 1 ? 's' : ''} referenced</div>
                         {m.results.slice(0, 3).map((r, i) => {
                           const pct = confidencePercent(r)
                           return (
@@ -705,7 +757,6 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                                   View in Google Drive
                                 </a>
                               ) : null}
-                              </div> : null}
                             </div>
                           )
                         })}

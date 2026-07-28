@@ -1,7 +1,8 @@
 import os
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ class LocalRedisFallback:
             val = _local_store.get(key)
             if val:
                 expire_at, value_str = val
-                if expire_at and datetime.utcnow() > expire_at:
+                if expire_at and datetime.now(timezone.utc).replace(tzinfo=None) > expire_at:
                     _local_store.pop(key, None)
                     return None
                 return value_str
@@ -28,7 +29,7 @@ class LocalRedisFallback:
         with _local_lock:
             expire_at = None
             if ex:
-                expire_at = datetime.utcnow() + timedelta(seconds=ex)
+                expire_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=ex)
             _local_store[key] = (expire_at, value)
             return True
 
@@ -60,7 +61,7 @@ def init_redis():
         return
 
     try:
-        import redis
+        import redis  # type: ignore
         client = redis.from_url(
             redis_url,
             socket_timeout=2.0,
@@ -80,7 +81,7 @@ def init_redis():
         _use_fallback = True
 
 
-def get_redis_client():
+def get_redis_client() -> Any:
     global _redis_client
     if _redis_client is None:
         init_redis()

@@ -1,17 +1,18 @@
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from qdrant_client.models import FieldCondition, MatchValue
+from sqlalchemy.orm import Session
 
-from app.database import SessionLocal, get_db
+from app.database import get_db
 from app.models import Chunk, User, Document
 from app.services.auth import get_current_user
 from app.services.embedder import _get_qdrant
 from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
 from app.services.redis_service import get_redis_client
-from app.services.llm_service import build_answer
+from app.services.llm_service import build_answer, parse_and_filter_results
 from app.services.rbac_filter import build_rbac_filter
 from app.config.settings import get_settings
 
@@ -51,22 +52,26 @@ def _make_chat_filter(
     so a user's own personal uploads are also searchable in their chat -
     without making them visible to anyone else, including admins."""
     base = build_rbac_filter(role)
-    base.should.append(
+    
+    should_conditions = list(base.should) if base.should else []
+    should_conditions.append(
         FieldCondition(key="owner_id", match=MatchValue(value=user_id))
     )
-    if not base.must:
-        base.must = []
+    base.should = should_conditions  # type: ignore
+
+    must_conditions = list(base.must) if base.must else []
 
     if department:
-        base.must.append(FieldCondition(key="department", match=MatchValue(value=department)))
+        must_conditions.append(FieldCondition(key="department", match=MatchValue(value=department)))
 
     if file_type:
-        base.must.append(FieldCondition(key="file_type", match=MatchValue(value=file_type.lower().strip())))
+        must_conditions.append(FieldCondition(key="file_type", match=MatchValue(value=file_type.lower().strip())))
 
     if date_range:
         import datetime
+        from datetime import timezone
         from qdrant_client.models import Range
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(timezone.utc).replace(tzinfo=None)
         delta = None
         if date_range == "today":
             delta = datetime.timedelta(days=1)
@@ -79,13 +84,14 @@ def _make_chat_filter(
 
         if delta:
             start_time = (now - delta).isoformat()
-            base.must.append(
+            must_conditions.append(
                 FieldCondition(
                     key="created_at",
-                    range=Range(gte=start_time),
+                    range=Range(gte=start_time),  # type: ignore
                 )
             )
 
+    base.must = must_conditions  # type: ignore
     return base
 
 
@@ -108,7 +114,7 @@ def normalize_filename(name: str) -> str:
 def chat(
     req: ChatRequest,
     current_user: User = Depends(get_current_user),
-    db: SessionLocal = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
     try:
         if not req.query or not req.query.strip():
@@ -123,7 +129,7 @@ def chat(
         redis_client = get_redis_client()
         cache_key = f"rag_cache:{current_user.role}:{req.department or ''}:{req.file_type or ''}:{req.date_range or ''}:{normalized}"
         
-        if not req.stream:
+        if not req.stream and redis_client is not None:
             try:
                 cached_res = redis_client.get(cache_key)
                 if cached_res:
@@ -135,7 +141,7 @@ def chat(
                 logging.getLogger(__name__).warning(f"Failed to read from RAG cache: {e}")
 
         # Org-visible docs (role-based) + this user's own personal docs
-        visible_doc_ids = _get_visible_doc_ids_for_role(str(current_user.role), db)
+        visible_doc_ids = _get_visible_doc_ids_for_role(current_user.role, db)
         personal_doc_ids = {
             d.id for d in db.query(Document).filter(Document.owner_user_id == current_user.id).all()
         }
@@ -145,7 +151,7 @@ def chat(
         if not query_vector:
             raise HTTPException(status_code=400, detail="Empty query vector")
 
-        query_filter = _make_chat_filter(str(current_user.role), current_user.id, req.department, req.file_type, req.date_range)
+        query_filter = _make_chat_filter(current_user.role, current_user.id, req.department, req.file_type, req.date_range)
         client = _get_qdrant()
         top_k = req.limit
 
@@ -267,6 +273,13 @@ def chat(
                 logger.error(f"LLM answer generation failed: {e}")
                 answer = ""
 
+        # Filter results to only include sources actually cited in the answer
+        if answer:
+            filtered_results, has_answer_filtered = parse_and_filter_results(answer, merged_results)
+            if filtered_results or not has_answer_filtered:
+                merged_results = filtered_results
+                has_answer = has_answer_filtered
+
         response_payload = {
             "query": req.query,
             "normalized_query": normalized,
@@ -276,7 +289,7 @@ def chat(
             "has_answer": has_answer,
         }
 
-        if not req.stream:
+        if not req.stream and redis_client is not None:
             try:
                 redis_client.set(cache_key, json.dumps(response_payload), ex=600)
             except Exception as e:

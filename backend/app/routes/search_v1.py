@@ -13,7 +13,7 @@ from app.database import get_db
 from app.models import Chunk, User, Document, AccessLevel
 from app.services.auth import get_current_user
 from app.services.embedder import _get_qdrant
-from app.services.llm_service import build_answer
+from app.services.llm_service import build_answer, parse_and_filter_results
 from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
 from app.services.rbac_filter import build_rbac_filter
@@ -170,7 +170,7 @@ def _make_filter(
             must_conditions.append(
                 FieldCondition(
                     key="created_at",
-                    range=Range(gte=start_time),
+                    range=Range(gte=start_time),  # type: ignore
                 )
             )
 
@@ -702,16 +702,22 @@ def search(
                     seen_files[fname] = score
                     deduped.append(r)
             merged_results = deduped
-        if merged_results and not has_answer:
-            has_answer = True
 
         answer = ""
-        if has_answer and merged_results:
+        if merged_results:
             try:
                 answer = build_answer(req.query, merged_results[:10])
             except Exception as e:
                 logger.error("LLM answer generation failed: %s", e)
                 answer = ""
+
+        # Filter results to only include sources actually cited in the answer
+        if answer:
+            filtered_results, has_answer_filtered = parse_and_filter_results(answer, merged_results)
+            if filtered_results or not has_answer_filtered:
+                merged_results = filtered_results
+                has_answer = has_answer_filtered
+            # else: keep original merged_results if filter removed everything
 
         return {
             "query": req.query,

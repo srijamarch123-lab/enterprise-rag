@@ -306,9 +306,10 @@ def cleanup_stale_qdrant_points(db):
         client = _get_qdrant()
         settings = get_settings()
         pts, _ = client.scroll(collection_name=settings.qdrant_collection_name, limit=1000, with_payload=True)
+        from qdrant_client.models import PointIdsList
         stale = [p.id for p in pts if p.payload and p.payload.get("chunk_id") and not db.query(Chunk).filter(Chunk.id == p.payload.get("chunk_id")).first()]
         if stale:
-            client.delete(collection_name=settings.qdrant_collection_name, points_selector=stale)
+            client.delete(collection_name=settings.qdrant_collection_name, points_selector=PointIdsList(points=stale))
             print(f"Cleaned {len(stale)} stale Qdrant points")
     except Exception as e:
         print(f"Stale cleanup failed: {e}")

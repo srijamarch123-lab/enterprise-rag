@@ -90,11 +90,11 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
     page_texts: list[str] = [""] * page_count
     pages_needing_ocr: list[int] = []
 
-    # Engine 1: C-accelerated instant text & layout block extraction
-    for i, page in enumerate(doc):
-        text = page.get_text("text") or ""
+    for i in range(page_count):
+        page = doc[i]
+        text = page.get_text("text") or ""  # type: ignore
         try:
-            tabs = page.find_tables()
+            tabs = page.find_tables()  # type: ignore
             if tabs and tabs.tables:
                 for tab in tabs.tables:
                     df = tab.extract()
@@ -110,6 +110,7 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
 
     doc.close()
 
+    errors: list[str] = []
     # Engine 2: Multi-worker Parallel OCR Engine for scanned pages
     if pages_needing_ocr:
         has_cloud_ocr = False
@@ -134,7 +135,6 @@ def _extract_pdf(path: Path) -> tuple[str, int]:
                 return page_num, txt, err
 
             ocr_results = {}
-            errors = []
 
             with ThreadPoolExecutor(max_workers=min(8, len(pages_needing_ocr) or 1)) as executor:
                 futures = {executor.submit(ocr_page, p): p for p in pages_needing_ocr}
@@ -200,7 +200,7 @@ def _ocr_pdf_page_fallback(path: Path, page_number_zero_based: int) -> tuple[str
 
         doc = fitz.open(str(path))
         page = doc[page_number_zero_based]
-        pix = page.get_pixmap(dpi=300)
+        pix = page.get_pixmap(dpi=300)  # type: ignore
         img_data = pix.tobytes("png")
         doc.close()
 
@@ -311,7 +311,7 @@ def _extract_csv(path: Path) -> tuple[str, None]:
 
 
 def _extract_xlsx(path: Path) -> tuple[str, None]:
-    import pandas as pd
+    import pandas as pd  # type: ignore
     sheets_text = []
     xls = pd.read_excel(path, sheet_name=None)
     for sheet_name, df in xls.items():

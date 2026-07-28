@@ -16,10 +16,15 @@ SYSTEM_PROMPT = """You are an expert enterprise knowledge assistant.
 
 RULES:
 - Answer ONLY from the provided document context. Never use outside knowledge.
-- If the answer is not found, say only: "I don't know based on the provided documents." Do not show any sources.
-- Write naturally - use bullet points only for lists of 3+ items, otherwise use clear prose.
-- Be precise - cite exact figures, dates, names, and policies from the documents.
-- Keep answers concise and directly relevant. Do NOT add a Sources section."""
+- If the answer is NOT found in the context, say ONLY: "I could not find this information in the available documents." Do NOT show any sources.
+- ALWAYS structure your answer as bullet points using "- " prefix.
+- Each bullet point must be a specific, concise fact extracted from the documents.
+- After each bullet point, cite the source document in parentheses, e.g., (Source: Compliance & Legal Framework Document.pdf)
+- Be precise — cite exact figures, dates, names, locations, and policies from the documents.
+- Do NOT copy-paste entire paragraphs from the documents. Synthesize and summarize.
+- Do NOT invent information. If a specific detail is not in the context, do not guess.
+- At the end, add a line: "Sources: " followed by a comma-separated list of all referenced document names.
+- If multiple documents support the same fact, cite all of them."""
 
 MAX_CONTEXT_TOKENS = 6000
 
@@ -80,7 +85,8 @@ def _groq_chat(messages: List[Any], max_tokens: int = 900) -> str:
         temperature=0.0,
         max_tokens=max_tokens,
     )
-    return response.choices[0].message.content.strip()
+    content = response.choices[0].message.content
+    return content.strip() if content else ""
 
 
 def _groq_stream(messages: List[Any], max_tokens: int = 900):
@@ -112,7 +118,7 @@ class LLMService:
             except Exception:
                 pass
 
-    def chat_completion(self, messages: List[dict[str, str]], max_tokens: int = 1024) -> str:
+    def chat_completion(self, messages: List[Any], max_tokens: int = 1024) -> str:
         # Try OpenAI first
         if self._openai_client:
             try:
@@ -122,7 +128,8 @@ class LLMService:
                     temperature=self.temperature,
                     max_tokens=max_tokens,
                 )
-                return response.choices[0].message.content.strip()
+                content = response.choices[0].message.content
+                return content.strip() if content else ""
             except RateLimitError as e:
                 if "insufficient_quota" in str(e):
                     logger.warning("OpenAI quota exhausted, falling back to Groq")
@@ -138,7 +145,7 @@ class LLMService:
             logger.error("Groq also failed: %s", e)
             raise
 
-    def stream_chat_completion(self, messages: List[dict[str, str]], max_tokens: int = 1024):
+    def stream_chat_completion(self, messages: List[Any], max_tokens: int = 1024):
         tokens_yielded = False
         # Try OpenAI streaming first
         if self._openai_client:
@@ -201,13 +208,50 @@ def generate_suggested_questions(query: str, answer: str, context: str) -> list[
         return ["Can you explain more?", "Show the key points", "What other documents relate to this?"]
 
 
-def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
+def _is_raw_text_dump(answer: str, chunks: list[dict[str, Any]]) -> bool:
+    """Detect if the LLM answer is just a raw copy of context text."""
+    if not answer:
+        return False
+    answer_clean = " ".join(answer.split()).lower().strip()
+    # Structural patterns that indicate raw dumps (no chunks needed)
+    if answer_clean.startswith("based on the available documents:"):
+        return True
+    if "### source:" in answer_clean:
+        return True
     if not chunks:
-        return "I don't know based on the provided documents."
+        return False
+    # Check if answer is >80% identical to any single chunk
+    for chunk in chunks:
+        chunk_text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
+        if not chunk_text:
+            continue
+        chunk_clean = " ".join(chunk_text.split()).lower().strip()
+        if len(chunk_clean) < 50:
+            continue
+        # Check overlap ratio
+        if chunk_clean in answer_clean or answer_clean in chunk_clean:
+            return True
+        # Check if >80% of answer words appear verbatim in one chunk
+        answer_words = set(answer_clean.split())
+        chunk_words = set(chunk_clean.split())
+        if answer_words and len(answer_words & chunk_words) / len(answer_words) > 0.80:
+            return True
+    return False
+
+
+def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
+    """Generate a structured bullet-point answer from chunks when LLM is unavailable.
+    
+    This is a LAST RESORT — it extracts the most relevant sentences from
+    retrieved chunks and formats them as bullet points with source citations.
+    It never dumps raw paragraphs.
+    """
+    if not chunks:
+        return "I could not find this information in the available documents."
     
     query_lower = query.lower().strip()
     
-    # 1. Handle "What other documents relate to this?" or "What documents are available?"
+    # 1. Handle "What documents are available?"
     if "other documents" in query_lower or "what documents" in query_lower or "list documents" in query_lower or "available documents" in query_lower:
         try:
             from app.database import SessionLocal
@@ -219,91 +263,69 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
                 if doc_names:
                     doc_list_str = "\n".join([f"- {name}" for name in sorted(doc_names)])
                     sources_part = f"\n\nSources: {', '.join(doc_names[:5])}"
-                    return f"Based on the system records, the following documents are currently available:\n\n{doc_list_str}{sources_part}"
+                    return f"The following documents are currently available:\n\n{doc_list_str}{sources_part}"
             finally:
                 db.close()
         except Exception:
             pass
 
-    # Extract all text segments
-    source_names = []
-    paragraphs = []
+    # Extract sentences with source attribution
+    query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
+    scored_sentences: list[tuple[int, str, str]] = []  # (score, sentence, source)
+    source_names: list[str] = []
+
     for chunk in chunks:
         text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
-        fname = chunk.get("filename") or chunk.get("doc_name")
+        fname = chunk.get("filename") or chunk.get("doc_name") or "Unknown"
         if fname and fname not in source_names:
             source_names.append(fname)
-        if text:
-            # Split into paragraphs
-            parts = [p.strip() for p in text.split("\n\n") if p.strip()]
-            for p in parts:
-                paragraphs.append((fname, p, chunk.get("page_number")))
+        if not text:
+            continue
 
-    if not paragraphs:
-        return "I don't know based on the provided documents."
+        # Split into sentences
+        import re
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        for sent in sentences:
+            sent = sent.strip()
+            if len(sent) < 15 or len(sent) > 300:
+                continue
+            # Score by keyword overlap with query
+            sent_lower = sent.lower()
+            score = sum(1 for w in query_words if w in sent_lower)
+            if score > 0:
+                scored_sentences.append((score, sent, fname))
 
-    # 2. Handle "Show the key points" or list / bullet requests
-    if "key points" in query_lower or "bullet points" in query_lower or "takeaways" in query_lower:
-        key_points = []
-        for fname, p, page in paragraphs:
-            lines = p.split("\n")
-            for line in lines:
-                line_str = line.strip()
-                if line_str.startswith(("-", "*", "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "•")):
-                    if len(line_str) > 10 and line_str not in key_points:
-                        key_points.append(line_str)
-        if not key_points:
-            # Fallback to first sentence of paragraphs
-            for fname, p, page in paragraphs:
-                sentences = [s.strip() for s in p.split(".") if s.strip()]
-                if sentences:
-                    first_sent = sentences[0]
-                    if len(first_sent) > 15:
-                        key_points.append(f"- {first_sent}.")
+    if not scored_sentences:
+        return "I could not find this information in the available documents."
+
+    # Sort by relevance score descending, deduplicate
+    scored_sentences.sort(key=lambda x: x[0], reverse=True)
+    
+    seen_sentences: set[str] = set()
+    bullet_points: list[str] = []
+    used_sources: list[str] = []
+    
+    for score, sent, fname in scored_sentences:
+        # Deduplicate by normalized content
+        normalized = " ".join(sent.lower().split())
+        if normalized in seen_sentences:
+            continue
+        seen_sentences.add(normalized)
         
-        if key_points:
-            excerpt = "\n".join(key_points[:10])
-            sources_part = f"\n\nSources: {', '.join(source_names)}" if source_names else ""
-            return f"Here are the key points extracted from the documents:\n\n{excerpt}{sources_part}"
-
-    # 3. Handle "Summarize" or summary requests
-    if "summar" in query_lower:
-        summary_sentences = []
-        for fname, p, page in paragraphs:
-            sentences = [s.strip() for s in p.split(".") if s.strip()]
-            for s in sentences[:2]:
-                if len(s) > 20 and s not in summary_sentences:
-                    summary_sentences.append(s)
-        if summary_sentences:
-            excerpt = " ".join(summary_sentences[:6])
-            sources_part = f"\n\nSources: {', '.join(source_names)}" if source_names else ""
-            return f"Summary of the retrieved sources:\n\n{excerpt}{sources_part}"
-
-    # 4. General query: rank paragraphs by keyword overlap with query to find the most relevant response
-    query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 3]
-    scored_paragraphs = []
-    for fname, p, page in paragraphs:
-        p_lower = p.lower()
-        score = sum(1 for w in query_words if w in p_lower)
-        scored_paragraphs.append((score, fname, p, page))
-    
-    # Sort by score descending
-    scored_paragraphs.sort(key=lambda x: x[0], reverse=True)
-    
-    excerpt_parts = []
-    used_sources = []
-    for score, fname, p, page in scored_paragraphs[:3]:
-        page_info = f" (Page {page})" if page else ""
-        excerpt_parts.append(f"### Source: {fname}{page_info}\n{p}")
+        # Format as bullet point with source citation
+        bullet_points.append(f"- {sent} (Source: {fname})")
         if fname not in used_sources:
             used_sources.append(fname)
-            
-    excerpt = "\n\n".join(excerpt_parts)
-    if len(excerpt) > 3000:
-        excerpt = excerpt[:3000] + "..."
         
-    sources_part = f"\n\nSources: {', '.join(used_sources)}" if used_sources else ""
-    return f"Based on the available documents:\n\n{excerpt}{sources_part}"
+        if len(bullet_points) >= 6:
+            break
+
+    if not bullet_points:
+        return "I could not find this information in the available documents."
+
+    answer_body = "\n".join(bullet_points)
+    sources_line = f"\n\nSources: {', '.join(used_sources)}"
+    return f"{answer_body}{sources_line}"
 
 
 def build_chat_prompt(
@@ -341,13 +363,18 @@ def build_chat_prompt(
 
 def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
     if not chunks:
-        return "I don't know based on the provided documents."
+        return "I could not find this information in the available documents."
     messages = build_chat_prompt(query, chunks)
     if not messages:
         return build_fallback_answer(query, chunks)
     try:
         llm = LLMService()
-        return llm.chat_completion(messages=messages, max_tokens=900)
+        answer = llm.chat_completion(messages=messages, max_tokens=900)
+        # Validate: if the LLM just dumped raw text, regenerate with fallback
+        if _is_raw_text_dump(answer, chunks):
+            logger.warning("LLM returned raw text dump, using structured fallback")
+            return build_fallback_answer(query, chunks)
+        return answer
     except Exception as exc:
         logger.warning("Falling back to local answer generation: %s", exc)
         return build_fallback_answer(query, chunks)
@@ -355,7 +382,7 @@ def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
 
 def build_answer_stream(query: str, chunks: list[dict[str, Any]]):
     if not chunks:
-        yield "I don't know based on the provided documents."
+        yield "I could not find this information in the available documents."
         return
     messages = build_chat_prompt(query, chunks)
     if not messages:
@@ -363,7 +390,98 @@ def build_answer_stream(query: str, chunks: list[dict[str, Any]]):
         return
     try:
         llm = LLMService()
-        yield from llm.stream_chat_completion(messages=messages, max_tokens=900)
+        collected_tokens: list[str] = []
+        for token in llm.stream_chat_completion(messages=messages, max_tokens=900):
+            collected_tokens.append(token)
+            yield token
+        # Post-stream validation: if the full answer is a raw dump, we can't undo
+        # the stream but log it for monitoring
+        full_answer = "".join(collected_tokens).strip()
+        if _is_raw_text_dump(full_answer, chunks):
+            logger.warning("Streamed answer was a raw text dump — consider prompt tuning")
     except Exception as exc:
         logger.warning("Streaming fell back to local answer generation: %s", exc)
         yield build_fallback_answer(query, chunks)
+
+
+def parse_and_filter_results(content: str, results: list[dict]) -> tuple[list[dict], bool]:
+    """Filter search results to only include sources actually referenced in the LLM answer.
+    
+    Returns (filtered_results, has_answer).
+    """
+    if not content:
+        return results, bool(results)
+
+    content_lower = content.lower().strip()
+    
+    # Detect "no answer found" responses
+    no_answer_phrases = [
+        "don't know",
+        "do not know",
+        "no information",
+        "cannot find",
+        "not found",
+        "could not find this information",
+        "could not find relevant",
+        "no relevant information",
+    ]
+    if any(phrase in content_lower for phrase in no_answer_phrases):
+        return [], False
+
+    import re
+    
+    def normalize_source_name(name: str) -> str:
+        """Normalize a source name for matching."""
+        name = name.strip().strip('-*"\'').strip()
+        # Remove common extensions for matching
+        for ext in ['.pdf', '.docx', '.doc', '.pptx', '.txt', '.xlsx', '.csv']:
+            if name.lower().endswith(ext):
+                name = name[:-len(ext)]
+        return re.sub(r'[^a-zA-Z0-9]', '', name).lower()
+    
+    # Extract source citations from the answer
+    # Match patterns like:
+    #   (Source: filename.pdf)
+    #   Sources: file1, file2
+    #   Source: filename
+    cited_sources: set[str] = set()
+    
+    # Pattern 1: Inline citations like (Source: filename.pdf)
+    inline_matches = re.findall(r'\(Source:\s*([^)]+)\)', content, re.IGNORECASE)
+    for match in inline_matches:
+        parts = re.split(r'[,;]', match)
+        for p in parts:
+            cleaned = p.strip().strip('-*"\'').strip()
+            if cleaned:
+                cited_sources.add(normalize_source_name(cleaned))
+    
+    # Pattern 2: Trailing "Sources: file1, file2" line
+    trailing_match = re.search(r'sources?\:\s*(.+?)$', content, re.IGNORECASE | re.MULTILINE)
+    if trailing_match:
+        sources_str = trailing_match.group(1).strip()
+        parts = re.split(r'[,;\n]', sources_str)
+        for p in parts:
+            cleaned = p.strip().strip('-*"\'').strip()
+            if cleaned and len(cleaned) > 2:
+                cited_sources.add(normalize_source_name(cleaned))
+    
+    if not cited_sources:
+        # No explicit citations found — return all results as-is
+        return results, bool(results)
+    
+    # Filter results to only include cited sources
+    filtered = []
+    for r in results:
+        fname = (r.get("filename") or r.get("doc_name") or "").strip()
+        if not fname:
+            continue
+        fname_norm = normalize_source_name(fname)
+        # Match if any cited source is a substring of filename or vice versa
+        if any(cs in fname_norm or fname_norm in cs for cs in cited_sources if cs):
+            filtered.append(r)
+    
+    # If filtering removed everything (possible false negative), return original
+    if not filtered and results:
+        return results, True
+    
+    return filtered, bool(filtered)
