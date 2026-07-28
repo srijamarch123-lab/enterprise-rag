@@ -20,6 +20,7 @@ from app.routes.drive import router as drive_router
 from app.routes.search import router as search_router
 from app.routes.process_all import router as process_all_router
 from app.routes.extract import router as extract_router
+from app.routes.drive_connections import router as drive_connections_router
 from app.routes.chat_sessions import router as chat_sessions_router
 from app.routes.feedback import router as feedback_router
 from app.routes.personal import router as personal_router
@@ -31,8 +32,9 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     init_db()
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-    from app.startup import create_default_admin, reset_stuck_documents
+    from app.startup import create_default_admin, create_drive_connections_table, reset_stuck_documents
     create_default_admin()
+    create_drive_connections_table()
     reset_stuck_documents()
     try:
         from app.services.embedder import _get_qdrant, ensure_collection
@@ -93,6 +95,7 @@ app.include_router(drive_router)
 app.include_router(search_router)
 app.include_router(process_all_router)
 app.include_router(extract_router)
+app.include_router(drive_connections_router)
 app.include_router(chat_sessions_router)
 app.include_router(feedback_router)
 app.include_router(personal_router)

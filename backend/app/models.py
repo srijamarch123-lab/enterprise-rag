@@ -229,4 +229,13 @@ class Feedback(Base):
     message: Mapped["ChatMessage"] = relationship("ChatMessage")
     user: Mapped["User"] = relationship("User")
 
-
+class DriveConnection(Base):
+    __tablename__ = "drive_connections"
+    __table_args__ = {"extend_existing": True}
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), default="Google Drive")
+    credentials_json: Mapped[dict] = mapped_column("credentials_json", JSON, nullable=False)
+    folder_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_synced: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
