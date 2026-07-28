@@ -59,3 +59,24 @@ def reset_stuck_documents():
             db.close()
     except Exception as e:
         print(f"Stuck documents reset skipped: {e}")
+
+def create_drive_connections_table():
+    try:
+        from app.database import engine
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS drive_connections (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(255) DEFAULT 'Google Drive',
+                    credentials_json JSON NOT NULL,
+                    folder_id VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    last_synced TIMESTAMP,
+                    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+                )
+            """))
+            conn.commit()
+            print("drive_connections table ready")
+    except Exception as e:
+        print(f"Drive connections table creation skipped: {e}")
