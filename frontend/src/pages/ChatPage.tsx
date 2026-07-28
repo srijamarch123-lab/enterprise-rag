@@ -699,7 +699,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                                   <progress value={Math.min(pct, 100)} max={100} className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`} />
                                 </div>
                               </div>
-                              <div className="chat-page-result-preview" style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", fontSize: "12px" }}>{((r as any).text || r.text_preview || "").slice(0, 300)}</div>
+                              <div className="chat-page-result-preview" style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", fontSize: "12px", lineHeight: "1.5", maxHeight: "4.5em" }}>{((r as any).text || r.text_preview || "").slice(0, 200)}</div>
                               {(r as any).drive_url ? (
                                 <a href={(r as any).drive_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", marginTop: "4px" }}>
                                   View in Google Drive
