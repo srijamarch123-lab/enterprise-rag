@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+__pycache__
+*.db
+uploads
+fastembed_cache
+.pytest_cache
+.vscode
+*.log
+*.bak
+*.swp
+.env

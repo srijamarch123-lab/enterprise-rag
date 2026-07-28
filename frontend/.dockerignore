@@ -1,0 +1,8 @@
+.git
+node_modules
+dist
+.vscode
+*.log
+.env
+.env.*
+!.env.production
