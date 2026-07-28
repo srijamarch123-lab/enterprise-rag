@@ -689,7 +689,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                           )
                         })()}
                         <div className="chat-page-message-answer-plain" style={{ color: isDark ? "#f0f0f0" : "#2B2A27" }}>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{(m.answer || m.content || "").replace(/\n?Sources?:[\s\S]*$/i, "").trim()}</ReactMarkdown>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{(m.answer || m.content || "").replace(/(?:\n|^)\s*Sources:\s*[\s\S]*$/i, "").trim()}</ReactMarkdown>
                         </div>
                         {/* Source chips - clean display of cited sources */}
                         {m.results && m.results.length > 0 && (
@@ -736,7 +736,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                     {m.results && m.results.length > 0 ? (
                       <div className="chat-page-results-list">
                         <div className="chat-page-results-summary">{m.results.length} source{m.results.length !== 1 ? 's' : ''} referenced</div>
-                        {m.results.slice(0, 3).map((r, i) => {
+                        {m.results.map((r, i) => {
                           const pct = confidencePercent(r)
                           return (
                             <div key={r.chunk_id || i} className="chat-page-result-card" onClick={() => setPreviewSource(r)} style={{ cursor: 'pointer' }}>
