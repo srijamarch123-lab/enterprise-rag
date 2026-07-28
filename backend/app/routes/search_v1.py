@@ -24,7 +24,7 @@ settings = get_settings()
 router = APIRouter(prefix="/api", tags=["search"])
 
 # Phase 4.3 spec: keep top 5 after re-ranking, regardless of retrieval limit
-RERANK_TOP_K = 8
+RERANK_TOP_K = 5
 CONFIDENCE_THRESHOLD = 0.72
 
 _reranker = None
@@ -649,7 +649,7 @@ def search(
 
         # Cross-Encoder Reranking
         import os
-        if not os.environ.get("DISABLE_RERANKER"):
+        if True:  # Always use reranker for accuracy
             merged_results = _rerank_with_cross_encoder(req.query, merged_results)
         merged_results = merged_results[:RERANK_TOP_K]
         
