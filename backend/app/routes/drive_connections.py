@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any
 from app.database import get_db
 from app.models import DriveConnection
 from app.dependencies.rbac import require_admin
@@ -46,7 +47,7 @@ def sync_connection(connection_id: int, background_tasks: BackgroundTasks, db: S
         from googleapiclient.discovery import build
         from google.oauth2.service_account import Credentials
         creds = Credentials.from_service_account_info(conn.credentials_json, scopes=["https://www.googleapis.com/auth/drive.readonly"])
-        service = build("drive", "v3", credentials=creds)
+        service: Any = build("drive", "v3", credentials=creds)
         query = "mimeType != 'application/vnd.google-apps.folder' and trashed = false"
         if conn.folder_id:
             query += f" and '{conn.folder_id}' in parents"
@@ -81,14 +82,14 @@ def sync_connection(connection_id: int, background_tasks: BackgroundTasks, db: S
         from app.models import Document
         existing_ids = {d.drive_file_id for d in db.query(Document).filter(Document.source == 'drive').all() if d.drive_file_id}
         existing_names = {d.original_filename for d in db.query(Document).all()}
-        new_files = [f for f in files if f['id'] not in existing_ids and f['name'] not in existing_names]
+        new_files = [f for f in mapped_files if f['drive_file_id'] not in existing_ids and f['name'] not in existing_names]
 
         if new_files:
             # ImportAllRequest expects files with the mapped format (drive_file_id, name, file_type, size)
             req = ImportAllRequest(credentials_json=conn.credentials_json, files=new_files)
             import_all(req, background_tasks=background_tasks, db=db)
 
-        conn.last_synced = datetime.utcnow()
+        conn.last_synced = datetime.now(timezone.utc).replace(tzinfo=None)
         db.commit()
 
         return {
