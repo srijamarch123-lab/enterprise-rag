@@ -684,7 +684,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                     {m.results && m.results.length > 0 ? (
                       <div className="chat-page-results-list">
                         <div className="chat-page-results-summary">{m.results.length} source{m.results.length !== 1 ? 's' : ''} found</div>
-                        {m.results.map((r, i) => {
+                        {m.results.slice(0, 3).map((r, i) => {
                           const pct = confidencePercent(r)
                           return (
                             <div key={r.chunk_id || i} className="chat-page-result-card" onClick={() => setPreviewSource(r)} style={{ cursor: 'pointer' }}>
