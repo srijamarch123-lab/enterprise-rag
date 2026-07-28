@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api", tags=["search"])
 
 # Phase 4.3 spec: keep top 5 after re-ranking, regardless of retrieval limit
 RERANK_TOP_K = 5
-CONFIDENCE_THRESHOLD = 0.72
+CONFIDENCE_THRESHOLD = 0.35
 
 _reranker = None
 
@@ -96,7 +96,7 @@ def expand_query(query: str) -> List[str]:
 
 class SearchRequest(BaseModel):
     query: str
-    limit: int = 10
+    limit: int = 15
     offset: int = 0
     department: Optional[str] = None
     keyword_backend: Optional[str] = None

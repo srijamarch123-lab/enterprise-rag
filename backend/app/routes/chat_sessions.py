@@ -293,7 +293,7 @@ def stream_chat(
     # Pre-run search for fallback (used if LLM agent fails or tools are not supported)
     search_request = ChatRequest(
         query=req.content,
-        limit=5,
+        limit=12,
         department=req.department,
         file_type=req.file_type,
         date_range=req.date_range,
@@ -391,7 +391,7 @@ def stream_chat(
                             
                             search_req_t = ChatRequest(
                                 query=search_q,
-                                limit=5,
+                                limit=12,
                                 department=req.department,
                                 file_type=req.file_type,
                                 date_range=req.date_range,

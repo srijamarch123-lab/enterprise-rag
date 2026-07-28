@@ -26,13 +26,13 @@ def upload_personal_file(
     db: Session = Depends(get_db),
 ):
     ext = _validate_file(file)
-    saved_name, file_path, size = _save_file(file, ext)
+    saved_name, file_path, size, actual_ext = _save_file(file, ext)
 
     doc = Document(
         filename=saved_name,
         original_filename=file.filename,
         file_path=file_path,
-        file_type=ext,
+        file_type=actual_ext,
         file_size=size,
         department=None,
         source="personal",

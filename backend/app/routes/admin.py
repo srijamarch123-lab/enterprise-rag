@@ -60,7 +60,7 @@ def list_users(db: Session = Depends(get_db)):
             "id": u.id,
             "email": u.email,
             "full_name": u.full_name,
-            "role": u.role.value if hasattr(u.role, "value") else str(u.role),
+            "role": getattr(u.role, "value", u.role),
             "is_active": u.is_active,
             "department": u.department,
             "created_at": u.created_at.isoformat() if u.created_at else None,

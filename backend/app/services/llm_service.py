@@ -18,6 +18,7 @@ RULES:
 - Answer ONLY from the provided document context. Never use outside knowledge.
 - If the answer is NOT found in the context, say ONLY: "I could not find this information in the available documents." Do NOT show any sources.
 - ALWAYS structure your answer as bullet points using "- " prefix.
+- Provide a detailed and comprehensive answer with at least 5 distinct bullet points (aim for 5 to 10 points) representing different aspects, details, or facts from the context whenever possible.
 - Each bullet point must be a specific, concise fact extracted from the documents.
 - After each bullet point, cite the source document in parentheses, e.g., (Source: Compliance & Legal Framework Document.pdf)
 - Be precise — cite exact figures, dates, names, locations, and policies from the documents.
@@ -271,52 +272,40 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
 
     # Extract sentences with source attribution
     query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
-    scored_sentences: list[tuple[int, str, str]] = []  # (score, sentence, source)
-    source_names: list[str] = []
+    bullet_points: list[str] = []
+    used_sources: list[str] = []
 
     for chunk in chunks:
         text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
         fname = chunk.get("filename") or chunk.get("doc_name") or "Unknown"
-        if fname and fname not in source_names:
-            source_names.append(fname)
         if not text:
             continue
 
-        # Split into sentences
         import re
         sentences = re.split(r'(?<=[.!?])\s+', text)
+        valid_sentences = []
         for sent in sentences:
             sent = sent.strip()
-            if len(sent) < 15 or len(sent) > 300:
-                continue
-            # Score by keyword overlap with query
-            sent_lower = sent.lower()
-            score = sum(1 for w in query_words if w in sent_lower)
-            if score > 0:
-                scored_sentences.append((score, sent, fname))
+            if len(sent) >= 15 and len(sent) <= 300:
+                # Score sentence by query keyword overlap
+                sent_lower = sent.lower()
+                score = sum(1 for w in query_words if w in sent_lower)
+                valid_sentences.append((score, sent))
 
-    if not scored_sentences:
-        return "I could not find this information in the available documents."
-
-    # Sort by relevance score descending, deduplicate
-    scored_sentences.sort(key=lambda x: x[0], reverse=True)
-    
-    seen_sentences: set[str] = set()
-    bullet_points: list[str] = []
-    used_sources: list[str] = []
-    
-    for score, sent, fname in scored_sentences:
-        # Deduplicate by normalized content
-        normalized = " ".join(sent.lower().split())
-        if normalized in seen_sentences:
+        if not valid_sentences:
             continue
-        seen_sentences.add(normalized)
-        
-        # Format as bullet point with source citation
-        bullet_points.append(f"- {sent} (Source: {fname})")
-        if fname not in used_sources:
-            used_sources.append(fname)
-        
+
+        # Select the best sentence for this chunk (highest keyword score, fallback to first)
+        valid_sentences.sort(key=lambda x: x[0], reverse=True)
+        best_sentence = valid_sentences[0][1]
+
+        # Deduplicate by normalized content
+        normalized = " ".join(best_sentence.lower().split())
+        if not any(normalized in bp.lower() for bp in bullet_points):
+            bullet_points.append(f"- {best_sentence} (Source: {fname})")
+            if fname not in used_sources:
+                used_sources.append(fname)
+
         if len(bullet_points) >= 6:
             break
 

@@ -69,7 +69,7 @@ async def extract_text(
         
     try:
         from app.services.versioning import handle_document_versioning
-        version = handle_document_versioning(db, file.filename, current_user.id)
+        version = handle_document_versioning(db, file.filename or "", current_user.id)
         
         # Create personal document record
         doc = Document(

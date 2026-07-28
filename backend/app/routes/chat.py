@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 class ChatRequest(BaseModel):
     query: str
-    limit: int = 10
+    limit: int = 15
     department: Optional[str] = None
     keyword_backend: Optional[str] = None
     stream: bool = False
