@@ -671,7 +671,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                   <div className="chat-page-message-column">
                     {(m.answer || m.content) ? (
                       <div className="chat-page-message-answer-plain" style={{ color: isDark ? "#f0f0f0" : "#2B2A27" }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.answer || m.content || ""}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{(m.answer || m.content || "").replace(/\n?Sources?:[\s\S]*$/i, "").trim()}</ReactMarkdown>
                       </div>
                     ) : loading && m.id === active.messages[active.messages.length - 1]?.id ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#8B8574', fontSize: '13px', padding: '4px 0' }}>
@@ -699,15 +699,12 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                                   <progress value={Math.min(pct, 100)} max={100} className={`chat-page-result-progress ${pct >= 70 ? 'success' : pct >= 40 ? 'warning' : 'danger'}`} />
                                 </div>
                               </div>
-                              <div className="chat-page-result-preview">{r.text || r.text_preview}</div>
-                              {(r.file_path || r.path) ? <div className="chat-page-result-path">
-                                {r.drive_url ? (
-                                  <a href={r.drive_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
-                                    View in Google Drive
-                                  </a>
-                                ) : (r.file_path || r.path) ? (
-                                  <span style={{ fontSize: "11px", color: color.textTertiary }}>{r.file_path || r.path}</span>
-                                ) : null}
+                              <div className="chat-page-result-preview" style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", fontSize: "12px" }}>{((r as any).text || r.text_preview || "").slice(0, 300)}</div>
+                              {(r as any).drive_url ? (
+                                <a href={(r as any).drive_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} style={{ color: color.adminAccent, fontSize: "11px", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "4px", marginTop: "4px" }}>
+                                  View in Google Drive
+                                </a>
+                              ) : null}
                               </div> : null}
                             </div>
                           )
