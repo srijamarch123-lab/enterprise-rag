@@ -268,9 +268,14 @@ def stream_chat(
     db.add(user_message)
 
     # Save uploaded doc to session metadata if provided
-    if req.session_context and not (session.session_metadata or {}).get("session_doc"):
+    if req.session_context:
+        existing_meta = session.session_metadata or {}
+        existing_docs = existing_meta.get("session_docs", [])
+        new_doc = {"name": req.session_doc_name or "uploaded_document", "text": req.session_context}
+        existing_docs.append(new_doc)
         session.session_metadata = {
-            **(session.session_metadata or {}),
+            **existing_meta,
+            "session_docs": existing_docs,
             "session_doc": req.session_context,
             "session_doc_name": req.session_doc_name or "uploaded_document"
         }
@@ -331,9 +336,14 @@ def stream_chat(
 
     # Inject uploaded session document as extra context
     extra_chunks = []
-    session_doc_text = req.session_context or (session.session_metadata or {}).get("session_doc")
-    if session_doc_text:
-        extra_chunks = [{"text": session_doc_text, "filename": "uploaded_document", "combined_score": 1.0}]
+    existing_meta = session.session_metadata or {}
+    session_docs = existing_meta.get("session_docs", [])
+    extra_chunks = []
+    if req.session_context:
+        extra_chunks.append({"text": req.session_context, "filename": req.session_doc_name or "uploaded_document", "combined_score": 1.0})
+    elif session_docs:
+        for doc in session_docs:
+            extra_chunks.append({"text": doc["text"], "filename": doc["name"], "combined_score": 1.0})
 
     prompt_messages = build_chat_prompt(req.content, extra_chunks + chunks, history_messages=history_for_prompt)
     if not prompt_messages:
