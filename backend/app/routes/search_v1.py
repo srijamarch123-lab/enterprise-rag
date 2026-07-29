@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api", tags=["search"])
 
 # Phase 4.3 spec: keep top 5 after re-ranking, regardless of retrieval limit
 RERANK_TOP_K = 5
-CONFIDENCE_THRESHOLD = 0.35
+CONFIDENCE_THRESHOLD = 0.55
 
 _reranker = None
 
