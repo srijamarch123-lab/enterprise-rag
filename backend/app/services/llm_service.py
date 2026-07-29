@@ -18,7 +18,8 @@ RULES:
 - Answer ONLY from the provided document context. Never use outside knowledge.
 - If the answer is NOT found in the context, say ONLY: "I could not find this information in the available documents." Do NOT show any sources.
 - ALWAYS structure your answer as bullet points using "- " prefix.
-- Provide a detailed and comprehensive answer with at least 5 distinct bullet points (aim for 5 to 10 points) representing different aspects, details, or facts from the context whenever possible.
+- Keep your answers concise, proper, and focused by default (aim for 2 to 4 key bullet points).
+- Provide a detailed and comprehensive answer with at least 5 distinct bullet points (aim for 5 to 10 points) ONLY if the user explicitly asks for a detailed explanation, elaboration, or in-depth overview.
 - Each bullet point must be a specific, concise fact extracted from the documents.
 - After each bullet point, cite the source document in parentheses, e.g., (Source: Compliance & Legal Framework Document.pdf)
 - Be precise — cite exact figures, dates, names, locations, and policies from the documents.
@@ -270,6 +271,11 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
         except Exception:
             pass
 
+    # Detect if user requested a detailed answer
+    detailed_words = ["detailed", "detail", "elaborate", "comprehensive", "in-depth", "fully", "explain"]
+    is_detailed_requested = any(w in query_lower for w in detailed_words)
+    max_bullets = 7 if is_detailed_requested else 3
+
     # Extract sentences with source attribution
     query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
     bullet_points: list[str] = []
@@ -306,8 +312,8 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
             if fname not in used_sources:
                 used_sources.append(fname)
                 
-        # 2. Second best sentence (if it has relevant query keyword overlap)
-        if len(valid_sentences) > 1 and valid_sentences[1][0] > 0:
+        # 2. Second best sentence (only if user requested detailed answer and it has relevant keyword overlap)
+        if is_detailed_requested and len(valid_sentences) > 1 and valid_sentences[1][0] > 0:
             second_sentence = valid_sentences[1][1]
             normalized_2 = " ".join(second_sentence.lower().split())
             if not any(normalized_2 in bp.lower() for bp in bullet_points):
@@ -315,7 +321,7 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
                 if fname not in used_sources:
                     used_sources.append(fname)
 
-        if len(bullet_points) >= 7:
+        if len(bullet_points) >= max_bullets:
             break
 
     if not bullet_points:
