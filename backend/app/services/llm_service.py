@@ -387,10 +387,10 @@ def build_chat_prompt(
     ]
 
 
-def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
+def build_answer(query: str, chunks: list[dict[str, Any]], history_messages: Optional[list[dict[str, Any]]] = None) -> str:
     if not chunks:
         return "I could not find this information in the available documents."
-    messages = build_chat_prompt(query, chunks)
+    messages = build_chat_prompt(query, chunks, history_messages=history_messages)
     if not messages:
         return build_fallback_answer(query, chunks)
     try:
@@ -406,11 +406,11 @@ def build_answer(query: str, chunks: list[dict[str, Any]]) -> str:
         return build_fallback_answer(query, chunks)
 
 
-def build_answer_stream(query: str, chunks: list[dict[str, Any]]):
+def build_answer_stream(query: str, chunks: list[dict[str, Any]], history_messages: Optional[list[dict[str, Any]]] = None):
     if not chunks:
         yield "I could not find this information in the available documents."
         return
-    messages = build_chat_prompt(query, chunks)
+    messages = build_chat_prompt(query, chunks, history_messages=history_messages)
     if not messages:
         yield build_fallback_answer(query, chunks)
         return

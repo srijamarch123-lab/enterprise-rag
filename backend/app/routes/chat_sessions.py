@@ -285,7 +285,7 @@ def stream_chat(
     # Update session title if it's the default "New chat"
     if session.title == "New chat":
         session.title = req.content.strip()[:40] or "New chat"
-        session.updated_at = __import__("datetime").datetime.utcnow()
+        session.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).replace(tzinfo=None)
 
     db.commit()
     db.refresh(user_message)
@@ -539,7 +539,7 @@ def stream_chat(
                 },
             )
             db.add(assistant_message)
-            session.updated_at = __import__("datetime").datetime.utcnow()
+            session.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).replace(tzinfo=None)
             session.title = session.title if session.title != "New chat" else (req.content.strip()[:40] or session.title)
             db.commit()
             yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': filtered_results, 'has_answer': has_answer, 'suggestions': suggestions})}\n\n"

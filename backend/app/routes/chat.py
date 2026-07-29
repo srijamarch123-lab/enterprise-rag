@@ -12,7 +12,7 @@ from app.services.embedder import _get_qdrant
 from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
 from app.services.redis_service import get_redis_client
-from app.services.llm_service import build_answer, parse_and_filter_results
+from app.services.llm_service import build_answer, build_answer_stream, parse_and_filter_results, condense_query
 from app.services.rbac_filter import build_rbac_filter
 from app.config.settings import get_settings
 
@@ -20,6 +20,7 @@ from app.routes.search_v1 import (
     _get_visible_doc_ids_for_role,
     _bm25_search,
     _merge_results,
+    _rerank_with_cross_encoder,
     RERANK_TOP_K,
     CONFIDENCE_THRESHOLD,
 )
@@ -39,6 +40,9 @@ class ChatRequest(BaseModel):
     stream: bool = False
     file_type: Optional[str] = None
     date_range: Optional[str] = None
+    # Conversation history for follow-up question support
+    # Each entry: {"role": "user" | "assistant", "content": "..."}
+    history: Optional[list[dict]] = None
 
 
 def _make_chat_filter(
@@ -124,6 +128,18 @@ def chat(
         if not normalized:
             raise HTTPException(status_code=400, detail="Query is empty after normalization")
 
+        # Condense follow-up queries using conversation history so they are
+        # self-contained and retrieve the correct documents.
+        history_messages = req.history or []
+        search_query = req.query
+        if history_messages:
+            try:
+                search_query = condense_query(req.query, history_messages)
+                logger.info("Condensed follow-up '%s' -> '%s'", req.query, search_query)
+            except Exception as cq_err:
+                logger.warning("condense_query failed, using raw query: %s", cq_err)
+        normalized_search = normalize_query(search_query) or normalized
+
         # Check cache (only if NOT streaming)
         import json
         redis_client = get_redis_client()
@@ -147,7 +163,7 @@ def chat(
         }
         visible_doc_ids = visible_doc_ids | personal_doc_ids
 
-        query_vector = embed_query(normalized)
+        query_vector = embed_query(normalized_search)
         if not query_vector:
             raise HTTPException(status_code=400, detail="Empty query vector")
 
@@ -164,7 +180,7 @@ def chat(
         ).points
 
         keyword_backend = (req.keyword_backend or "bm25").strip().lower()
-        bm25_results = _bm25_search(normalized, visible_doc_ids, db, top_k=top_k * 2)
+        bm25_results = _bm25_search(normalized_search, visible_doc_ids, db, top_k=top_k * 2)
 
         for b in bm25_results:
             if b.get("document_id"):
@@ -200,12 +216,19 @@ def chat(
                 r["file_path"] = doc.file_path
                 r["filename"] = doc.original_filename
                 r["department"] = doc.department or r.get("department")
-                r["access_level"] = str(doc.access_level) if doc.access_level else r.get("access_level")
+                r["access_level"] = doc.access_level if doc.access_level else r.get("access_level")
 
             if r.get("chunk_id"):
                 chunk_row = db.query(Chunk).filter(Chunk.id == r["chunk_id"]).first()
                 if chunk_row:
                     r["full_text"] = chunk_row.text
+
+        # Apply cross-encoder reranking (same as search_v1 main route)
+        merged_results = _rerank_with_cross_encoder(normalized, merged_results)
+
+        # After reranking, recompute has_answer using updated scores
+        top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
+        has_answer = top_score >= CONFIDENCE_THRESHOLD
 
         if req.stream:
             from fastapi.responses import StreamingResponse
@@ -232,9 +255,8 @@ def chat(
 
                 yield f"data: {json.dumps({'event': 'metadata', 'results': serializable_results, 'has_answer': has_answer})}\n\n"
 
-                if has_answer and merged_results:
+                if merged_results:
                     try:
-                        from app.services.llm_service import build_answer_stream
                         context_chunks = [
                             {
                                 "text": r.get("full_text") or r.get("text_preview", ""),
@@ -245,7 +267,7 @@ def chat(
                             }
                             for r in merged_results
                         ]
-                        for token in build_answer_stream(req.query, context_chunks):
+                        for token in build_answer_stream(req.query, context_chunks, history_messages=history_messages):
                             yield f"data: {json.dumps({'event': 'token', 'token': token})}\n\n"
                     except Exception as e:
                         logger.error(f"Streaming LLM failed: {e}")
@@ -256,7 +278,9 @@ def chat(
             return StreamingResponse(event_generator(), media_type="text/event-stream")
 
         answer = ""
-        if has_answer and merged_results:
+        # Always attempt to build an answer — the LLM will say "not found" if context is insufficient.
+        # This prevents silent empty responses when has_answer is marginally False.
+        if merged_results:
             try:
                 context_chunks = [
                     {
@@ -268,7 +292,7 @@ def chat(
                     }
                     for r in merged_results
                 ]
-                answer = build_answer(req.query, context_chunks)
+                answer = build_answer(req.query, context_chunks, history_messages=history_messages)
             except Exception as e:
                 logger.error(f"LLM answer generation failed: {e}")
                 answer = ""

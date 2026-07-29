@@ -497,7 +497,9 @@ def _merge_results(
     top_score = results[0].get("combined_score", 0) if results else 0
     has_answer = top_score >= confidence_threshold
 
-    return results if has_answer else [], has_answer
+    # Always return results so callers (chat, reranker) have chunks to work with.
+    # has_answer is a confidence signal; callers decide whether to use the answer.
+    return results, has_answer
 
 
 def normalize_filename(name: str) -> str:
