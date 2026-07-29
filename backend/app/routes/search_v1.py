@@ -236,7 +236,15 @@ def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> 
     if BM25Okapi is not None:
         corpus = [c.text.lower().split() for c in chunks]
         bm25 = BM25Okapi(corpus)
-        query_tokens_list = query.lower().split()
+        
+        # Filter out common stop words and search query triggers to make keyword match highly specific
+        stop_words = {
+            "what", "is", "are", "the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "by", "from", "do", "play", "how", "why", "show", "key", "points", "summarize", "sources", "document", "documents"
+        }
+        query_tokens_list = [token for token in query.lower().split() if token and token not in stop_words]
+        if not query_tokens_list:
+            query_tokens_list = [token for token in query.lower().split() if token]
+            
         scores = bm25.get_scores(query_tokens_list)
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
@@ -466,7 +474,8 @@ def _merge_results(
                 base_score = min(0.98, base_score + bm25_boost)
         else:
             bm25_rank = bm25_ranks.get(cid, len(bm25_results) + 1)
-            base_score = max(0.40, 0.85 - (bm25_rank - 1) * 0.05)
+            # Cap keyword-only match score at 0.50 so it doesn't override semantic matches
+            base_score = max(0.20, 0.50 - (bm25_rank - 1) * 0.05)
 
         meta_boost = 0.0
         access_level = m.get("access_level", "")

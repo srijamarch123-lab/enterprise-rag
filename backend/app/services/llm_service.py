@@ -295,18 +295,27 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
         if not valid_sentences:
             continue
 
-        # Select the best sentence for this chunk (highest keyword score, fallback to first)
+        # Select up to 2 best sentences for this chunk (highest keyword scores)
         valid_sentences.sort(key=lambda x: x[0], reverse=True)
+        
+        # 1. Best sentence
         best_sentence = valid_sentences[0][1]
-
-        # Deduplicate by normalized content
         normalized = " ".join(best_sentence.lower().split())
         if not any(normalized in bp.lower() for bp in bullet_points):
             bullet_points.append(f"- {best_sentence} (Source: {fname})")
             if fname not in used_sources:
                 used_sources.append(fname)
+                
+        # 2. Second best sentence (if it has relevant query keyword overlap)
+        if len(valid_sentences) > 1 and valid_sentences[1][0] > 0:
+            second_sentence = valid_sentences[1][1]
+            normalized_2 = " ".join(second_sentence.lower().split())
+            if not any(normalized_2 in bp.lower() for bp in bullet_points):
+                bullet_points.append(f"- {second_sentence} (Source: {fname})")
+                if fname not in used_sources:
+                    used_sources.append(fname)
 
-        if len(bullet_points) >= 6:
+        if len(bullet_points) >= 7:
             break
 
     if not bullet_points:
@@ -481,7 +490,6 @@ def condense_query(query: str, history: list[dict]) -> str:
     if not history:
         return query
     try:
-        from app.services.llm_service import LLMService
         llm = LLMService(temperature=0.0)
         
         # Build clean history summary text
