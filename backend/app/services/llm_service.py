@@ -18,9 +18,8 @@ RULES:
 - Answer ONLY from the provided document context. Never use outside knowledge.
 - If the answer is NOT found in the context, say ONLY: "I could not find this information in the available documents." Do NOT show any sources.
 - ALWAYS structure your answer as bullet points using "- " prefix.
-- Keep your answers concise, proper, and focused by default (aim for 2 to 4 key bullet points).
-- Provide a detailed and comprehensive answer with at least 5 distinct bullet points (aim for 5 to 10 points) ONLY if the user explicitly asks for a detailed explanation, elaboration, or in-depth overview.
-- Each bullet point must be a specific, concise fact extracted from the documents.
+- Provide a clear, thorough, and structured answer with a MINIMUM of 5 distinct bullet points (aim for 5 to 10 key bullet points) whenever sufficient context exists.
+- Each bullet point must be a specific, informative fact or policy detail extracted from the documents.
 - After each bullet point, cite the source document in parentheses, e.g., (Source: Compliance & Legal Framework Document.pdf)
 - Be precise - cite exact figures, dates, names, locations, and policies from the documents.
 - Do NOT copy-paste entire paragraphs from the documents. Synthesize and summarize.
@@ -203,33 +202,47 @@ class LLMService:
 
 
 def generate_suggested_questions(query: str, answer: str, context: str) -> list[str]:
-    if not answer or answer == "I don't know based on the provided documents.":
-        return [
-            "What documents are available?",
-            "Summarize the main policies",
-            "Who has access to internal documents?"
-        ]
+    default_questions = [
+        "What other documents are available?",
+        "Summarize the key policy requirements",
+        "Who is responsible for oversight?",
+        "What are the main compliance rules?",
+        "Explain the workflow process",
+        "Show additional details on this topic",
+    ]
+    if not answer or answer == "I don't know based on the provided documents." or "could not find" in answer.lower():
+        return default_questions[:6]
     prompt = (
-        "Based on the following user query, generated answer, and context, generate 3 short relevant follow-up questions.\n"
+        "Based on the following user query, generated answer, and context, generate 5 to 6 short relevant follow-up questions.\n"
         "Return ONLY the questions, one per line, no numbering or extra text.\n\n"
         f"Query: {query}\n\nAnswer: {answer}\n\nContext:\n{context}\n\nSuggested Questions:"
     )
     try:
         llm = LLMService(temperature=0.7)
         messages = [
-            {"role": "system", "content": "You generate short follow-up questions."},
+            {"role": "system", "content": "You generate 5 to 6 short, relevant follow-up questions based on the provided answer and context."},
             {"role": "user", "content": prompt}
         ]
-        res = llm.chat_completion(messages=messages, max_tokens=150)
+        res = llm.chat_completion(messages=messages, max_tokens=250)
         import re
         questions = [re.sub(r'^\d+[\.\)]\s*', '', q.strip().strip("-*\"")).strip() for q in res.split("\n") if q.strip()]
-        cleaned = [q for q in questions if len(q) > 5][:5]
-        if len(cleaned) < 3:
-            cleaned = [f"Tell me more about {query}", "Show the key points", "What other documents relate to this?"]
-        return cleaned
+        cleaned = [q for q in questions if len(q) > 5][:6]
+        if len(cleaned) < 5:
+            extra = [
+                f"Tell me more about {query}",
+                "Show key points and summary",
+                "What other documents relate to this?",
+                "What are the specific requirements?",
+                "Explain the background details",
+                "What are the next steps?"
+            ]
+            for e in extra:
+                if e not in cleaned and len(cleaned) < 6:
+                    cleaned.append(e)
+        return cleaned[:6]
     except Exception as exc:
         logger.warning("Failed to generate suggested questions: %s", exc)
-        return ["Can you explain more?", "Show the key points", "What other documents relate to this?"]
+        return default_questions[:6]
 
 
 def _is_raw_text_dump(answer: str, chunks: list[dict[str, Any]]) -> bool:
@@ -293,10 +306,8 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
         except Exception:
             pass
 
-    # Detect if user requested a detailed answer
-    detailed_words = ["detailed", "detail", "elaborate", "comprehensive", "in-depth", "fully", "explain"]
-    is_detailed_requested = any(w in query_lower for w in detailed_words)
-    max_bullets = 7 if is_detailed_requested else 3
+    # Default to minimum 5-6 bullets for all answers
+    max_bullets = 8
 
     # Extract sentences with source attribution
     query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
@@ -334,8 +345,8 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
             if fname not in used_sources:
                 used_sources.append(fname)
                 
-        # 2. Second best sentence (only if user requested detailed answer and it has relevant keyword overlap)
-        if is_detailed_requested and len(valid_sentences) > 1 and valid_sentences[1][0] > 0:
+        # 2. Second best sentence (if available and has relevant keyword overlap)
+        if len(valid_sentences) > 1 and valid_sentences[1][0] > 0:
             second_sentence = valid_sentences[1][1]
             normalized_2 = " ".join(second_sentence.lower().split())
             if not any(normalized_2 in bp.lower() for bp in bullet_points):
