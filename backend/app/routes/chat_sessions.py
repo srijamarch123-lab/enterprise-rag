@@ -328,7 +328,14 @@ def stream_chat(
         extra_chunks.append({"text": doc_text, "filename": req.session_doc_name or "uploaded_document", "combined_score": 1.0})
     elif session_docs:
         for doc in session_docs:
-            extra_chunks.append({"text": doc["text"], "filename": doc["name"], "combined_score": 1.0})
+            doc_text = doc["text"]
+            for marker in ['Use this as additional context', 'The user has uploaded']:
+                if marker in doc_text:
+                    idx = doc_text.find('\n\n', doc_text.find(marker))
+                    if idx > 0:
+                        doc_text = doc_text[idx+2:]
+                    break
+            extra_chunks.append({"text": doc_text, "filename": doc["name"], "combined_score": 1.0})
     final_chunks = extra_chunks if has_uploaded_doc else extra_chunks + chunks
     prompt_messages = build_chat_prompt(req.content, final_chunks, history_messages=history_for_prompt)
     if not prompt_messages:
