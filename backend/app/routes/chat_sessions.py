@@ -364,7 +364,7 @@ def stream_chat(
     agent_chunks = extra_chunks if has_uploaded_doc else list(chunks)
     agent_ran_tools = False
 
-    if client:
+    if client and not has_uploaded_doc:
         # Run agentic tool calling loop (max 3 turns)
         max_turns = 3
         turn = 0
