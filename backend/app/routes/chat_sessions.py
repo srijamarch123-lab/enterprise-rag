@@ -345,7 +345,7 @@ def stream_chat(
         except Exception:
             pass
 
-    agent_chunks = list(chunks)
+    agent_chunks = extra_chunks if has_uploaded_doc else list(chunks)
     agent_ran_tools = False
 
     if client:
