@@ -474,3 +474,40 @@ def parse_and_filter_results(content: str, results: list[dict]) -> tuple[list[di
         return results, True
     
     return filtered, bool(filtered)
+
+
+def condense_query(query: str, history: list[dict]) -> str:
+    """Rewrite a follow-up user query to incorporate relevant context from conversation history."""
+    if not history:
+        return query
+    try:
+        from app.services.llm_service import LLMService
+        llm = LLMService(temperature=0.0)
+        
+        # Build clean history summary text
+        history_text = ""
+        for entry in history[-5:]:  # look at last 5 messages
+            role = (entry.get("role") or "user").strip().lower()
+            content = (entry.get("content") or "").strip()
+            if content:
+                history_text += f"{role.capitalize()}: {content}\n"
+                
+        if not history_text:
+            return query
+            
+        prompt = (
+            "Given the following conversation history and a follow-up question, rewrite the follow-up question to be a standalone search query that contains all necessary context (such as entity names, specific topics) from the history.\n"
+            "Do NOT answer the question. Just output the rewritten standalone query. If the question is already standalone and does not need context, output it exactly as is.\n\n"
+            f"Conversation History:\n{history_text}\n"
+            f"Follow-up Question: {query}\n"
+            "Standalone Query:"
+        )
+        rewritten = llm.chat_completion(messages=[{"role": "user", "content": prompt}], max_tokens=150)
+        rewritten = rewritten.strip().strip('"\'-*')
+        if rewritten:
+            logger.info("Rewrote follow-up query '%s' to standalone query '%s'", query, rewritten)
+            return rewritten
+    except Exception as e:
+        logger.warning("Failed to condense follow-up query: %s", e)
+    return query
+

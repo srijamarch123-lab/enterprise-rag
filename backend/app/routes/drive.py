@@ -311,5 +311,5 @@ def extract_drive_text(
                 pass
         raise HTTPException(500, f"Failed to save Google Drive document record: {db_err}")
         
-    return {"text": text, "filename": req.file["name"]}
+    return {"id": doc.id, "text": text, "filename": req.file["name"]}
 

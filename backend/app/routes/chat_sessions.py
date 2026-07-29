@@ -30,6 +30,7 @@ class SendMessageRequest(BaseModel):
     department: str | None = None
     file_type: str | None = None
     date_range: str | None = None
+    session_doc_ids: list[int] | None = None
 
 
 @router.post("/sessions", status_code=201)
@@ -193,11 +194,23 @@ def get_session(
             "metadata": meta,
         })
 
+    session_metadata = session.session_metadata or {}
+    uploaded_ids = session_metadata.get("uploaded_document_ids", [])
+    session_docs_list = []
+    if uploaded_ids:
+        docs = db.query(Document).filter(Document.id.in_(uploaded_ids)).all()
+        for doc in docs:
+            session_docs_list.append({
+                "id": doc.id,
+                "filename": doc.original_filename
+            })
+
     return {
         "id": session.id,
         "title": session.title,
-        "session_doc": (session.session_metadata or {}).get("session_doc"),
-        "session_doc_name": (session.session_metadata or {}).get("session_doc_name"),
+        "session_doc": session_metadata.get("session_doc"),
+        "session_doc_name": session_metadata.get("session_doc_name"),
+        "session_docs": session_docs_list,
         "messages": formatted_messages,
     }
 
@@ -244,6 +257,19 @@ def stream_chat(
     db.add(user_message)
 
     # Save uploaded doc to session metadata if provided
+    session_metadata = session.session_metadata or {}
+    session_doc_ids = session_metadata.get("uploaded_document_ids", [])
+    if req.session_doc_ids:
+        uploaded_ids = list(session_doc_ids)
+        for doc_id in req.session_doc_ids:
+            if doc_id not in uploaded_ids:
+                uploaded_ids.append(doc_id)
+        session.session_metadata = {
+            **session_metadata,
+            "uploaded_document_ids": uploaded_ids
+        }
+        session_doc_ids = uploaded_ids
+
     if req.session_context:
         existing_meta = session.session_metadata or {}
         existing_docs = existing_meta.get("session_docs", [])
@@ -290,66 +316,74 @@ def stream_chat(
         }
     ]
 
-    # Pre-run search for fallback (used if LLM agent fails or tools are not supported)
-    search_request = ChatRequest(
-        query=req.content,
-        limit=12,
-        department=req.department,
-        file_type=req.file_type,
-        date_range=req.date_range,
-    )
-    search_response = search(search_request, current_user=current_user, db=db)
-    chunks = search_response.get("results", [])
-
     # Exclude the user message we just added from history, since it is passed as the current query
     history_for_prompt = [
         {"role": msg["role"], "content": msg["content"]}
         for msg in history_messages[:-1]
     ]
 
-    # Implement sliding history window
-    history_for_prompt = truncate_chat_history(history_for_prompt)
+    # Implement sliding history window (allow up to 4000 tokens for follow-ups)
+    history_for_prompt = truncate_chat_history(history_for_prompt, max_tokens=4000)
 
-    # Inject uploaded session document as extra context
+    # Condense search query using history to make follow-up questions context-aware
+    from app.services.llm_service import condense_query
+    condensed_query = condense_query(req.content.strip(), history_for_prompt)
+
+    # Pre-run search for fallback (used if LLM agent fails or tools are not supported)
+    search_request = ChatRequest(
+        query=condensed_query,
+        limit=12,
+        department=req.department,
+        file_type=req.file_type,
+        date_range=req.date_range,
+        document_ids=session_doc_ids if session_doc_ids else None,
+    )
+    search_response = search(search_request, current_user=current_user, db=db)
+    chunks = search_response.get("results", [])
+
+    # Inject uploaded session document as extra context (legacy fallback only)
     extra_chunks = []
     existing_meta = session.session_metadata or {}
     session_docs = existing_meta.get("session_docs", [])
-    has_uploaded_doc = bool(req.session_context or session_docs)
-    if req.session_context:
-        doc_text = req.session_context
-        # Split into paragraphs and find most relevant to current query
-        query_lower = req.content.lower()
-        paragraphs = [p.strip() for p in doc_text.split('\n') if len(p.strip()) > 50]
-        # Score paragraphs by keyword overlap with query
-        query_words = set(w for w in query_lower.split() if len(w) > 3)
-        scored = []
-        for p in paragraphs:
-            score = sum(1 for w in query_words if w in p.lower())
-            scored.append((score, p))
-        scored.sort(reverse=True)
-        # Take top relevant paragraphs up to 3000 chars
-        selected = []
-        total = 0
-        for score, p in scored:
-            if total + len(p) > 3000:
-                break
-            selected.append(p)
-            total += len(p)
-        # Also include first 500 chars for context
-        intro = doc_text[:500]
-        final_text = intro + "\n\n" + "\n".join(selected) if selected else doc_text[:3000]
-        extra_chunks.append({"text": final_text, "filename": req.session_doc_name or "uploaded_document", "combined_score": 1.0})
-    elif session_docs:
-        for doc in session_docs:
-            doc_text = doc["text"]
-            for marker in ['Use this as additional context', 'The user has uploaded']:
-                if marker in doc_text:
-                    idx = doc_text.find('\n\n', doc_text.find(marker))
-                    if idx > 0:
-                        doc_text = doc_text[idx+2:]
+    has_uploaded_doc = bool(session_doc_ids or req.session_context or session_docs)
+    
+    if not session_doc_ids:
+        if req.session_context:
+            doc_text = req.session_context
+            # Split into paragraphs and find most relevant to current query
+            query_lower = req.content.lower()
+            paragraphs = [p.strip() for p in doc_text.split('\n') if len(p.strip()) > 50]
+            # Score paragraphs by keyword overlap with query
+            query_words = set(w for w in query_lower.split() if len(w) > 3)
+            scored = []
+            for p in paragraphs:
+                score = sum(1 for w in query_words if w in p.lower())
+                scored.append((score, p))
+            scored.sort(reverse=True)
+            # Take top relevant paragraphs up to 3000 chars
+            selected = []
+            total = 0
+            for score, p in scored:
+                if total + len(p) > 3000:
                     break
-            extra_chunks.append({"text": doc_text, "filename": doc["name"], "combined_score": 1.0})
-    final_chunks = extra_chunks if has_uploaded_doc else extra_chunks + chunks
+                selected.append(p)
+                total += len(p)
+            # Also include first 500 chars for context
+            intro = doc_text[:500]
+            final_text = intro + "\n\n" + "\n".join(selected) if selected else doc_text[:3000]
+            extra_chunks.append({"text": final_text, "filename": req.session_doc_name or "uploaded_document", "combined_score": 1.0})
+        elif session_docs:
+            for doc in session_docs:
+                doc_text = doc["text"]
+                for marker in ['Use this as additional context', 'The user has uploaded']:
+                    if marker in doc_text:
+                        idx = doc_text.find('\n\n', doc_text.find(marker))
+                        if idx > 0:
+                            doc_text = doc_text[idx+2:]
+                        break
+                extra_chunks.append({"text": doc_text, "filename": doc["name"], "combined_score": 1.0})
+                
+    final_chunks = extra_chunks if (has_uploaded_doc and not session_doc_ids) else extra_chunks + chunks
     prompt_messages = build_chat_prompt(req.content, final_chunks, history_messages=history_for_prompt)
     if not prompt_messages:
         prompt_messages = [
@@ -374,10 +408,13 @@ def stream_chat(
         except Exception:
             pass
 
-    agent_chunks = extra_chunks if has_uploaded_doc else list(chunks)
+    agent_chunks = extra_chunks if (has_uploaded_doc and not session_doc_ids) else list(chunks)
     agent_ran_tools = False
 
-    if client and not has_uploaded_doc:
+    # Run agent loop if client is available AND (either no uploaded doc, or we have the doc IDs in Qdrant)
+    run_agent_loop = client is not None and (not has_uploaded_doc or bool(session_doc_ids))
+
+    if run_agent_loop:
         # Run agentic tool calling loop (max 3 turns)
         max_turns = 3
         turn = 0
@@ -424,6 +461,7 @@ def stream_chat(
                                 department=req.department,
                                 file_type=req.file_type,
                                 date_range=req.date_range,
+                                document_ids=session_doc_ids if session_doc_ids else None,
                             )
                             search_res_t = search(search_req_t, current_user=current_user, db=db)
                             new_chunks = search_res_t.get("results", [])

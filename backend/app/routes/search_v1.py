@@ -102,6 +102,7 @@ class SearchRequest(BaseModel):
     keyword_backend: Optional[str] = None
     file_type: Optional[str] = None
     date_range: Optional[str] = None
+    document_ids: Optional[List[int]] = None
 
 
 ChatRequest = SearchRequest
@@ -113,6 +114,7 @@ def _make_filter(
     file_type: Optional[str] = None,
     date_range: Optional[str] = None,
     user_id: Optional[int] = None,
+    document_ids: Optional[list[int]] = None,
 ) -> Filter:
     base = build_rbac_filter(role)
     from qdrant_client.models import FieldCondition, MatchValue, Range
@@ -135,6 +137,15 @@ def _make_filter(
     base.must_not = must_not_conditions  # type: ignore
 
     must_conditions = list(base.must) if base.must else []
+
+    if document_ids:
+        from qdrant_client.models import MatchAny
+        must_conditions.append(
+            FieldCondition(
+                key="document_id",
+                match=MatchAny(any=list(document_ids)),
+            )
+        )
 
     if department:
         must_conditions.append(
@@ -517,7 +528,12 @@ def search(
                 Document.is_active == True
             ).all()
         }
-        visible_doc_ids = visible_doc_ids | personal_doc_ids
+        allowed_doc_ids = visible_doc_ids | personal_doc_ids
+
+        if req.document_ids:
+            visible_doc_ids = set(req.document_ids) & allowed_doc_ids
+        else:
+            visible_doc_ids = allowed_doc_ids
 
         # Query Expansion
         expanded_queries = expand_query(req.query)
@@ -527,7 +543,8 @@ def search(
             req.department,
             req.file_type,
             req.date_range,
-            user_id=current_user.id
+            user_id=current_user.id,
+            document_ids=list(visible_doc_ids) if req.document_ids else None
         )
         top_k = req.limit
 

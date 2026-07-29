@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Send, Plus, MessageSquare, ArrowLeft, LogOut, FileText, Loader2, Mic, ThumbsUp, ThumbsDown, HardDrive, Upload, X, MoreHorizontal, Pencil, Trash2, Search, PanelLeftClose, PanelLeftOpen, Square, Sun, Moon } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import api, { logout, submitFeedback, extractFileText, extractDriveFileText, getDriveFiles } from '../services/api'
+import api, { logout, submitFeedback, extractFileText, extractDriveFileText, getDriveFiles, uploadPersonalFile } from '../services/api'
 import { useTheme } from '../ThemeContext'
 import './ChatPage.css'
 
@@ -104,8 +104,9 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
   const [driveJson, setDriveJson] = useState('')
   const [driveError, setDriveError] = useState('')
   const [sessionDrive, setSessionDrive] = useState<{ label: string } | null>(null)
-  const [sessionDoc, setSessionDoc] = useState<{ filename: string; text: string } | null>(null)
+  const [sessionDoc, setSessionDoc] = useState<{ filename: string; id: number } | null>(null)
   const [uploadingDoc, setUploadingDoc] = useState(false)
+  const [processingStatus, setProcessingStatus] = useState<string | null>(null)
   const [driveFolderId, setDriveFolderId] = useState('')
   const [driveFiles, setDriveFiles] = useState<any[]>([])
   const [driveLoading, setDriveLoading] = useState(false)
@@ -213,8 +214,13 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         return { ...c, title, messages: mappedMessages }
       }))
       // Restore uploaded doc if session has one
-      if (data.session_doc && data.session_doc_name) {
-        setSessionDoc({ filename: data.session_doc_name, text: data.session_doc })
+      if (data.session_docs && data.session_docs.length > 0) {
+        const firstDoc = data.session_docs[0]
+        setSessionDoc({ filename: firstDoc.filename, id: firstDoc.id })
+        setSessionDrive({ label: firstDoc.filename })
+      } else if (data.session_doc && data.session_doc_name) {
+        // Legacy fallback
+        setSessionDoc({ filename: data.session_doc_name, id: -1, text: data.session_doc } as any)
         setSessionDrive({ label: data.session_doc_name })
       } else {
         setSessionDoc(null)
@@ -255,7 +261,8 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
         signal: controller.signal,
         body: JSON.stringify({
           content: query,
-          session_context: sessionDoc ? `The user has uploaded a document called "${sessionDoc.filename}". Use this as additional context:\n\n${sessionDoc.text}` : undefined,
+          session_doc_ids: (sessionDoc && sessionDoc.id !== -1) ? [sessionDoc.id] : undefined,
+          session_context: (sessionDoc && sessionDoc.id === -1) ? `The user has uploaded a document called "${sessionDoc.filename}". Use this as additional context:\n\n${(sessionDoc as any).text}` : undefined,
           session_doc_name: sessionDoc?.filename,
           department: filterDept || undefined,
           file_type: filterFileType || undefined,
@@ -415,15 +422,54 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     }
   }
 
+  const pollDocumentStatus = (docId: number, filename: string) => {
+    setUploadingDoc(true)
+    setProcessingStatus('Queueing document processing...')
+    const intervalId = setInterval(async () => {
+      try {
+        const res = await api.get(`/personal/documents/${docId}/status`)
+        const status = res.data.status
+        if (status === 'embedded') {
+          clearInterval(intervalId)
+          setSessionDoc({ filename, id: docId })
+          setSessionDrive({ label: filename })
+          setUploadingDoc(false)
+          setProcessingStatus(null)
+        } else if (status === 'failed') {
+          clearInterval(intervalId)
+          alert(`Document processing failed: ${res.data.extraction_error || 'Unknown error'}`)
+          setUploadingDoc(false)
+          setProcessingStatus(null)
+        } else {
+          // Update visual status
+          const statusLabels: Record<string, string> = {
+            pending: 'Queueing for processing...',
+            extracting: 'Extracting text...',
+            extracted: 'Text extracted...',
+            chunking: 'Generating document chunks...',
+            chunked: 'Document chunked...',
+            embedding: 'Creating vector embeddings...',
+          }
+          setProcessingStatus(statusLabels[status] || `Processing (${status})...`)
+        }
+      } catch (err) {
+        clearInterval(intervalId)
+        alert('Failed to check document processing status')
+        setUploadingDoc(false)
+        setProcessingStatus(null)
+      }
+    }, 1500)
+  }
+
   const handleSelectDriveFile = async (f: any) => {
     if (!driveCredentials) return
     setDriveLoading(true)
     setDriveError('')
     try {
       const result = await extractDriveFileText(driveCredentials, f)
-      setSessionDoc({ filename: result.filename, text: result.text })
-      setSessionDrive({ label: result.filename })
       setShowDriveModal(false)
+      // Poll background chunking & embedding status
+      pollDocumentStatus(result.id, result.filename)
       // Reset credentials/files state for next time
       setDriveCredentials(null)
       setDriveFiles([])
@@ -441,14 +487,15 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     if (!file) return
     setShowPlus(false)
     setUploadingDoc(true)
+    setProcessingStatus('Uploading file...')
     try {
-      const result = await extractFileText(file)
-      setSessionDoc({ filename: result.filename, text: result.text })
-      setSessionDrive({ label: result.filename })
+      const result = await uploadPersonalFile(file)
+      pollDocumentStatus(result.id, file.name)
     } catch (err: any) {
-      alert(err.response?.data?.detail || 'Failed to read file')
-    } finally {
+      alert(err.response?.data?.detail || 'Failed to upload file')
       setUploadingDoc(false)
+      setProcessingStatus(null)
+    } finally {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
@@ -635,7 +682,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
           <div style={{ padding: '6px 24px', background: color.chatAccentSoft, borderBottom: `1px solid ${color.border}`, display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: color.chatAccentHover }}>
             <HardDrive size={12} />
             {sessionDrive.label}  connected for this chat only
-            <button onClick={() => setSessionDrive(null)} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', color: color.textTertiary, display: 'flex', alignItems: 'center' }}>
+            <button onClick={() => { setSessionDrive(null); setSessionDoc(null); }} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', cursor: 'pointer', color: color.textTertiary, display: 'flex', alignItems: 'center' }}>
               <X size={13} />
             </button>
           </div>
@@ -803,6 +850,12 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                 Searching...
               </div>
             )}
+            {uploadingDoc && (
+              <div className="chat-page-loading" style={{ margin: '10px 0', padding: '12px', background: isDark ? '#2a2a2a' : '#f5f5f5', borderRadius: '8px', border: `1px dashed ${color.border}` }}>
+                <Loader2 size={14} className="animate-spin" style={{ color: color.chatAccent }} />
+                <span style={{ fontWeight: 500, fontSize: '13px', color: color.textPrimary }}>{processingStatus || 'Processing document...'}</span>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
         </div>
@@ -814,8 +867,9 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
             <div ref={plusRef} style={{ position: 'relative', flexShrink: 0 }}>
               <button
                 type="button"
+                disabled={uploadingDoc}
                 onClick={() => setShowPlus(p => !p)}
-                style={{ width: '46px', height: '46px', borderRadius: radius.md, border: `1px solid ${color.border}`, background: color.surface, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.textSecondary }}
+                style={{ width: '46px', height: '46px', borderRadius: radius.md, border: `1px solid ${color.border}`, background: color.surface, cursor: uploadingDoc ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.textSecondary, opacity: uploadingDoc ? 0.6 : 1 }}
               >
                 <Plus size={18} />
               </button>
@@ -843,7 +897,15 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
               )}
             </div>
 
-            <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ask a question about your documents..." className="chat-page-input" style={{ background: isDark ? "#2a2a2a" : "white", color: isDark ? "#f0f0f0" : "#2B2A27", borderColor: isDark ? "#3a3a3a" : undefined }} />
+            <input 
+              type="text" 
+              value={input} 
+              onChange={(e) => setInput(e.target.value)} 
+              placeholder={uploadingDoc ? (processingStatus || "Processing document...") : "Ask a question about your documents..."} 
+              disabled={loading || uploadingDoc} 
+              className="chat-page-input" 
+              style={{ background: isDark ? "#2a2a2a" : "white", color: isDark ? "#f0f0f0" : "#2B2A27", borderColor: isDark ? "#3a3a3a" : undefined }} 
+            />
             {loading ? (
               <button type="button" onClick={handleStopGeneration} className="chat-page-stop-button" aria-label="Stop generation">
                 <Square size={14} fill={color.chatAccent} color={color.chatAccent} style={{ marginRight: '6px' }} /> Stop
@@ -851,7 +913,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
             ) : (
               <>
                 <button type="button" onClick={startVoiceInput} className={`chat-page-send-button ${listening ? 'listening' : ''}`} aria-label="Voice input"><Mic size={16} /></button>
-                <button type="submit" disabled={!input.trim()} className="chat-page-send-button" aria-label="Send message"><Send size={16} /></button>
+                <button type="submit" disabled={!input.trim() || uploadingDoc} className="chat-page-send-button" aria-label="Send message"><Send size={16} /></button>
               </>
             )}
           </div>
