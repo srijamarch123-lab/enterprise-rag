@@ -314,14 +314,14 @@ def stream_chat(
     extra_chunks = []
     existing_meta = session.session_metadata or {}
     session_docs = existing_meta.get("session_docs", [])
-    extra_chunks = []
+    has_uploaded_doc = bool(req.session_context or session_docs)
     if req.session_context:
         extra_chunks.append({"text": req.session_context, "filename": req.session_doc_name or "uploaded_document", "combined_score": 1.0})
     elif session_docs:
         for doc in session_docs:
             extra_chunks.append({"text": doc["text"], "filename": doc["name"], "combined_score": 1.0})
-
-    prompt_messages = build_chat_prompt(req.content, extra_chunks + chunks, history_messages=history_for_prompt)
+    final_chunks = extra_chunks if has_uploaded_doc else extra_chunks + chunks
+    prompt_messages = build_chat_prompt(req.content, final_chunks, history_messages=history_for_prompt)
     if not prompt_messages:
         prompt_messages = [
             {"role": "system", "content": "You are a helpful assistant."},
