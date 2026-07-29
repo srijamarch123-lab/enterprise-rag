@@ -16,24 +16,17 @@ SYSTEM_PROMPT = """You are an expert enterprise knowledge assistant.
 
 RULES:
 - Answer ONLY from the provided document context. Never use outside knowledge.
-<<<<<<< Updated upstream
 - If the answer is NOT found in the context, say ONLY: "I could not find this information in the available documents." Do NOT show any sources.
 - ALWAYS structure your answer as bullet points using "- " prefix.
 - Keep your answers concise, proper, and focused by default (aim for 2 to 4 key bullet points).
 - Provide a detailed and comprehensive answer with at least 5 distinct bullet points (aim for 5 to 10 points) ONLY if the user explicitly asks for a detailed explanation, elaboration, or in-depth overview.
 - Each bullet point must be a specific, concise fact extracted from the documents.
 - After each bullet point, cite the source document in parentheses, e.g., (Source: Compliance & Legal Framework Document.pdf)
-- Be precise — cite exact figures, dates, names, locations, and policies from the documents.
+- Be precise - cite exact figures, dates, names, locations, and policies from the documents.
 - Do NOT copy-paste entire paragraphs from the documents. Synthesize and summarize.
 - Do NOT invent information. If a specific detail is not in the context, do not guess.
 - At the end, add a line: "Sources: " followed by a comma-separated list of all referenced document names.
 - If multiple documents support the same fact, cite all of them."""
-=======
-- If the answer is NOT in the context, say only: "I could not find this information in the available documents."
-- Format naturally: use bullet points for lists of 3+ items, short paragraph for simple facts, detailed paragraphs for complex topics. Let the question guide the format.
-- Be concise and precise. Do not pad answers. Do not repeat information.
-- Do not add a Sources section - sources are shown separately."""
->>>>>>> Stashed changes
 
 MAX_CONTEXT_TOKENS = 6000
 
@@ -97,25 +90,6 @@ def _groq_chat(messages: List[Any], max_tokens: int = 900) -> str:
     content = response.choices[0].message.content
     return content.strip() if content else ""
 
-
-def _gemini_stream(messages, max_tokens=900):
-    try:
-        import google.generativeai as genai
-        import os
-        api_key = os.environ.get("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("No Gemini API key configured")
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        system = next((m["content"] for m in messages if m["role"] == "system"), "")
-        user_msgs = [m["content"] for m in messages if m["role"] != "system"]
-        prompt = system + "\n\n" + "\n".join(user_msgs)
-        response = model.generate_content(prompt, stream=True)
-        for chunk in response:
-            if chunk.text:
-                yield chunk.text
-    except Exception as e:
-        raise RuntimeError(f"Gemini failed: {e}")
 
 def _groq_stream(messages: List[Any], max_tokens: int = 900):
     client = _get_groq_client()
@@ -211,7 +185,6 @@ class LLMService:
                     yield token
                 return
             except Exception as e:
-<<<<<<< Updated upstream
                 if tokens_yielded:
                     logger.error("Groq stream failed mid-flight after tokens were yielded: %s", e)
                     return
@@ -227,15 +200,6 @@ class LLMService:
             except Exception as e:
                 logger.error("Gemini stream also failed: %s", e)
                 raise
-=======
-                logger.error("Groq stream also failed: %s", e)
-                try:
-                    logger.info("Falling back to Gemini")
-                    yield from _gemini_stream(messages, max_tokens=max_tokens)
-                except Exception as gemini_err:
-                    logger.error("Gemini also failed: %s", gemini_err)
-                    raise
->>>>>>> Stashed changes
 
 
 def generate_suggested_questions(query: str, answer: str, context: str) -> list[str]:
@@ -302,7 +266,7 @@ def _is_raw_text_dump(answer: str, chunks: list[dict[str, Any]]) -> bool:
 def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
     """Generate a structured bullet-point answer from chunks when LLM is unavailable.
     
-    This is a LAST RESORT — it extracts the most relevant sentences from
+    This is a LAST RESORT - it extracts the most relevant sentences from
     retrieved chunks and formats them as bullet points with source citations.
     It never dumps raw paragraphs.
     """
@@ -460,7 +424,7 @@ def build_answer_stream(query: str, chunks: list[dict[str, Any]], history_messag
         # the stream but log it for monitoring
         full_answer = "".join(collected_tokens).strip()
         if _is_raw_text_dump(full_answer, chunks):
-            logger.warning("Streamed answer was a raw text dump — consider prompt tuning")
+            logger.warning("Streamed answer was a raw text dump - consider prompt tuning")
     except Exception as exc:
         logger.warning("Streaming fell back to local answer generation: %s", exc)
         yield build_fallback_answer(query, chunks)
@@ -494,7 +458,8 @@ def parse_and_filter_results(content: str, results: list[dict]) -> tuple[list[di
     
     def normalize_source_name(name: str) -> str:
         """Normalize a source name for matching."""
-        name = name.strip().strip('-*"\'').strip()
+        name = name.strip()
+        name = name.strip('-').strip('*').strip('"').strip("'")
         # Remove common extensions for matching
         for ext in ['.pdf', '.docx', '.doc', '.pptx', '.txt', '.xlsx', '.csv']:
             if name.lower().endswith(ext):
@@ -528,7 +493,7 @@ def parse_and_filter_results(content: str, results: list[dict]) -> tuple[list[di
                 cited_sources.add(normalize_source_name(cleaned))
     
     if not cited_sources:
-        # No explicit citations found — return all results as-is
+        # No explicit citations found - return all results as-is
         return results, bool(results)
     
     # Filter results to only include cited sources

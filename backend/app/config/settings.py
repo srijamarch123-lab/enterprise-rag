@@ -12,10 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     groq_api_key: str = ""
     gemini_api_key: str = ""
-<<<<<<< Updated upstream
-=======
-    gemini_api_key: str = ""
->>>>>>> Stashed changes
+
 
     # Qdrant
     qdrant_url: str = ""
