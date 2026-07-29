@@ -323,7 +323,7 @@ def stream_chat(
     ]
 
     # Implement sliding history window (allow up to 4000 tokens for follow-ups)
-    history_for_prompt = truncate_chat_history(history_for_prompt, max_tokens=4000)
+    history_for_prompt = truncate_chat_history(history_for_prompt, max_tokens=800)
 
     # Condense search query using history to make follow-up questions context-aware
     from app.services.llm_service import condense_query

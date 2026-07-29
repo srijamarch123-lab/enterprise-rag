@@ -16,6 +16,7 @@ SYSTEM_PROMPT = """You are an expert enterprise knowledge assistant.
 
 RULES:
 - Answer ONLY from the provided document context. Never use outside knowledge.
+<<<<<<< Updated upstream
 - If the answer is NOT found in the context, say ONLY: "I could not find this information in the available documents." Do NOT show any sources.
 - ALWAYS structure your answer as bullet points using "- " prefix.
 - Keep your answers concise, proper, and focused by default (aim for 2 to 4 key bullet points).
@@ -27,6 +28,12 @@ RULES:
 - Do NOT invent information. If a specific detail is not in the context, do not guess.
 - At the end, add a line: "Sources: " followed by a comma-separated list of all referenced document names.
 - If multiple documents support the same fact, cite all of them."""
+=======
+- If the answer is NOT in the context, say only: "I could not find this information in the available documents."
+- Format naturally: use bullet points for lists of 3+ items, short paragraph for simple facts, detailed paragraphs for complex topics. Let the question guide the format.
+- Be concise and precise. Do not pad answers. Do not repeat information.
+- Do not add a Sources section - sources are shown separately."""
+>>>>>>> Stashed changes
 
 MAX_CONTEXT_TOKENS = 6000
 
@@ -90,6 +97,25 @@ def _groq_chat(messages: List[Any], max_tokens: int = 900) -> str:
     content = response.choices[0].message.content
     return content.strip() if content else ""
 
+
+def _gemini_stream(messages, max_tokens=900):
+    try:
+        import google.generativeai as genai
+        import os
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("No Gemini API key configured")
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        system = next((m["content"] for m in messages if m["role"] == "system"), "")
+        user_msgs = [m["content"] for m in messages if m["role"] != "system"]
+        prompt = system + "\n\n" + "\n".join(user_msgs)
+        response = model.generate_content(prompt, stream=True)
+        for chunk in response:
+            if chunk.text:
+                yield chunk.text
+    except Exception as e:
+        raise RuntimeError(f"Gemini failed: {e}")
 
 def _groq_stream(messages: List[Any], max_tokens: int = 900):
     client = _get_groq_client()
@@ -185,6 +211,7 @@ class LLMService:
                     yield token
                 return
             except Exception as e:
+<<<<<<< Updated upstream
                 if tokens_yielded:
                     logger.error("Groq stream failed mid-flight after tokens were yielded: %s", e)
                     return
@@ -200,6 +227,15 @@ class LLMService:
             except Exception as e:
                 logger.error("Gemini stream also failed: %s", e)
                 raise
+=======
+                logger.error("Groq stream also failed: %s", e)
+                try:
+                    logger.info("Falling back to Gemini")
+                    yield from _gemini_stream(messages, max_tokens=max_tokens)
+                except Exception as gemini_err:
+                    logger.error("Gemini also failed: %s", gemini_err)
+                    raise
+>>>>>>> Stashed changes
 
 
 def generate_suggested_questions(query: str, answer: str, context: str) -> list[str]:
