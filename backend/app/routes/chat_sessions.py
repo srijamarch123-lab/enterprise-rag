@@ -316,7 +316,16 @@ def stream_chat(
     session_docs = existing_meta.get("session_docs", [])
     has_uploaded_doc = bool(req.session_context or session_docs)
     if req.session_context:
-        extra_chunks.append({"text": req.session_context, "filename": req.session_doc_name or "uploaded_document", "combined_score": 1.0})
+        # Clean the session context - remove the instruction prefix, keep just the doc content
+        doc_text = req.session_context
+        prefix_markers = ['Use this as additional context', 'The user has uploaded']
+        for marker in prefix_markers:
+            if marker in doc_text:
+                idx = doc_text.find('\n\n', doc_text.find(marker))
+                if idx > 0:
+                    doc_text = doc_text[idx+2:]
+                break
+        extra_chunks.append({"text": doc_text, "filename": req.session_doc_name or "uploaded_document", "combined_score": 1.0})
     elif session_docs:
         for doc in session_docs:
             extra_chunks.append({"text": doc["text"], "filename": doc["name"], "combined_score": 1.0})
