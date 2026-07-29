@@ -120,21 +120,17 @@ class ExtractorTests(unittest.TestCase):
 
     def test_extract_xlsx(self):
         """Test Excel document extraction with a programmatically generated xlsx file."""
-        import pandas as pd
-        
-        # Create a simple DataFrame
-        data = {
-            "Name": ["Alice", "Bob"],
-            "Age": [25, 30],
-            "Department": ["HR", "Engineering"]
-        }
-        df = pd.DataFrame(data)
+        import xlsxwriter
         
         temp_xlsx = Path("temp_test_document.xlsx")
+        workbook = xlsxwriter.Workbook(str(temp_xlsx))
+        worksheet = workbook.add_worksheet("Sheet1")
+        worksheet.write_row(0, 0, ["Name", "Age", "Department"])
+        worksheet.write_row(1, 0, ["Alice", 25, "HR"])
+        worksheet.write_row(2, 0, ["Bob", 30, "Engineering"])
+        workbook.close()
+        
         try:
-            # Write to Excel
-            df.to_excel(temp_xlsx, index=False)
-            
             # Extract text
             text, pages = extract_text(str(temp_xlsx), "xlsx")
             self.assertIsNotNone(text)

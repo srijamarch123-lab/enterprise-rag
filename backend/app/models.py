@@ -1,5 +1,8 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
+
+def _utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 from sqlalchemy import (
     Integer, String, Text, DateTime, Float, Boolean,
     Enum, ForeignKey, JSON
@@ -70,7 +73,7 @@ class Document(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     # Timestamps
-    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     # Relations
@@ -100,7 +103,7 @@ class Chunk(Base):
     qdrant_point_id: Mapped[str | None] = mapped_column(String(100))
     embedding_error: Mapped[str | None] = mapped_column(Text)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     # Relations
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")
@@ -118,9 +121,9 @@ class ChatSession(Base):
     )
     title: Mapped[str] = mapped_column(String(255), default="New chat")
     session_metadata: Mapped[dict | None] = mapped_column("session_metadata", JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=_utcnow, onupdate=_utcnow
     )
 
     messages: Mapped[list["ChatMessage"]] = relationship(
@@ -143,7 +146,7 @@ class ChatMessage(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str | None] = mapped_column(Text)
     message_metadata: Mapped[dict | None] = mapped_column("metadata", JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     session: Mapped["ChatSession"] = relationship("ChatSession", back_populates="messages")
 
@@ -163,7 +166,7 @@ class User(Base):
     token_version: Mapped[int] = mapped_column(Integer, default=0)  # for forced logout
     department: Mapped[str | None] = mapped_column(String(100))
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     last_login: Mapped[datetime | None] = mapped_column(DateTime)
 
     audit_logs: Mapped[list["AuditLog"]] = relationship(
@@ -203,7 +206,7 @@ class AuditLog(Base):
     resource_id: Mapped[str | None] = mapped_column(String(100))
     details: Mapped[dict | None] = mapped_column(JSON)
     ip_address: Mapped[str | None] = mapped_column(String(50))
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     user: Mapped["User | None"] = relationship("User", back_populates="audit_logs")
 
@@ -225,7 +228,7 @@ class Feedback(Base):
     comment: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(50), default="flagged")  # flagged | reviewed | resolved
     admin_notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     # Relations
     message: Mapped["ChatMessage"] = relationship("ChatMessage")
@@ -238,6 +241,18 @@ class DriveConnection(Base):
     name: Mapped[str] = mapped_column(String(255), default="Google Drive")
     credentials_json: Mapped[dict] = mapped_column("credentials_json", JSON, nullable=False)
     folder_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     last_synced: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class SemanticCache(Base):
+    __tablename__ = "semantic_caches"
+    __table_args__ = {"extend_existing": True}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding_json: Mapped[str] = mapped_column(Text, nullable=False)
+    response_json: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

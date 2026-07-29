@@ -310,17 +310,127 @@ def _extract_csv(path: Path) -> tuple[str, None]:
     return _clean("\n".join(rows)), None
 
 
+def read_xlsx_file(path: Path) -> dict[str, list[list[str]]]:
+    import zipfile
+    import xml.etree.ElementTree as ET
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    sheets_data = {}
+    try:
+        with zipfile.ZipFile(path, 'r') as zip_ref:
+            # 1. Read workbook.xml to get sheet names and their relationship IDs (rId)
+            wb_xml = zip_ref.read('xl/workbook.xml')
+            root_wb = ET.fromstring(wb_xml)
+            
+            # Map rId to sheet name
+            ns = {'main': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+                  'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'}
+            
+            sheet_map = [] # list of dict: {name, rId}
+            for sheet_el in root_wb.findall('.//main:sheet', ns):
+                name = sheet_el.get('name')
+                # Try getting relationship ID from attribute (sometimes prefixed, sometimes not)
+                r_id = None
+                for key, val in sheet_el.attrib.items():
+                    if key.endswith('id'):
+                        r_id = val
+                        break
+                if name and r_id:
+                    sheet_map.append({'name': name, 'rId': r_id})
+                
+            # 2. Read workbook.xml.rels to map rId to target sheet file name (e.g. sheets/sheet1.xml)
+            rels_xml = zip_ref.read('xl/_rels/workbook.xml.rels')
+            root_rels = ET.fromstring(rels_xml)
+            rel_map = {} # rId -> target file
+            for rel_el in root_rels.findall('.//{http://schemas.openxmlformats.org/package/2006/relationships}Relationship'):
+                r_id = rel_el.get('Id')
+                target = rel_el.get('Target')
+                rel_map[r_id] = target
+                
+            # 3. Read sharedStrings.xml (values of text cells)
+            shared_strings = []
+            try:
+                ss_xml = zip_ref.read('xl/sharedStrings.xml')
+                root_ss = ET.fromstring(ss_xml)
+                for si in root_ss.findall('.//main:si', ns):
+                    t_elements = si.findall('.//main:t', ns)
+                    t_parts = [t.text for t in t_elements if t.text]
+                    shared_strings.append("".join(t_parts))
+            except KeyError:
+                # sharedStrings.xml might not exist if there are no string values
+                pass
+                
+            # 4. Parse individual sheets
+            for item in sheet_map:
+                name = item['name']
+                r_id = item['rId']
+                target_file = rel_map.get(r_id)
+                if not target_file:
+                    continue
+                # Target path can be relative to xl/ or absolute
+                if not target_file.startswith('worksheets/'):
+                    target_file = f"worksheets/{target_file}"
+                
+                sheet_path = f"xl/{target_file}"
+                try:
+                    sheet_xml = zip_ref.read(sheet_path)
+                except KeyError:
+                    # Sometimes relation target starts with /xl/
+                    if target_file.startswith('/xl/'):
+                        sheet_path = target_file.lstrip('/')
+                    else:
+                        sheet_path = f"xl/{target_file.split('/')[-1]}"
+                    try:
+                        sheet_xml = zip_ref.read(sheet_path)
+                    except KeyError:
+                        continue
+                    
+                root_sheet = ET.fromstring(sheet_xml)
+                
+                # Rows and cells
+                rows_data = []
+                for row_el in root_sheet.findall('.//main:row', ns):
+                    row_cells = []
+                    for c_el in row_el.findall('.//main:c', ns):
+                        cell_type = c_el.get('t') # s = shared string, str = inline string, inlineStr
+                        val_el = c_el.find('main:v', ns)
+                        
+                        val = ""
+                        if val_el is not None and val_el.text:
+                            val = val_el.text
+                            if cell_type == 's':
+                                try:
+                                    val = shared_strings[int(val)]
+                                except (ValueError, IndexError):
+                                    pass
+                        elif cell_type == 'inlineStr':
+                            t_el = c_el.find('.//main:t', ns)
+                            if t_el is not None and t_el.text:
+                                val = t_el.text
+                                
+                        row_cells.append(val)
+                    if any(c for c in row_cells):
+                        rows_data.append(row_cells)
+                if rows_data:
+                    sheets_data[name] = rows_data
+    except Exception as e:
+        logger.warning("Standard library Excel parser failed: %s", e)
+    return sheets_data
+
+
 def _extract_xlsx(path: Path) -> tuple[str, None]:
-    import pandas as pd  # type: ignore
+    sheets_data = read_xlsx_file(path)
     sheets_text = []
-    xls = pd.read_excel(path, sheet_name=None)
-    for sheet_name, df in xls.items():
+    for sheet_name, rows in sheets_data.items():
         sheets_text.append(f"--- Sheet: {sheet_name} ---")
-        df = df.fillna("")
-        headers = " | ".join([str(col).strip() for col in df.columns])
-        sheets_text.append(headers)
-        sheets_text.append("-|-".join(["---" for _ in df.columns]))
-        for _, row in df.iterrows():
+        if not rows:
+            continue
+        headers = [str(cell).strip() for cell in rows[0]]
+        headers_str = " | ".join(headers)
+        sheets_text.append(headers_str)
+        sheets_text.append("-|-".join(["---" for _ in headers]))
+        for row in rows[1:]:
             row_str = " | ".join([str(cell).replace("\n", " ").strip() for cell in row])
             sheets_text.append(row_str)
     return _clean("\n".join(sheets_text)), None

@@ -37,7 +37,7 @@ def _get_reranker():
             import os
             cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
             os.makedirs(cache_dir, exist_ok=True)
-            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2", cache_dir=cache_dir)
+            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-2-v2", cache_dir=cache_dir)
         except Exception as e:
             logger.warning("Failed to initialize TextCrossEncoder: %s", e)
     return _reranker
@@ -530,6 +530,44 @@ def search(
         if not normalized:
             raise HTTPException(status_code=400, detail="Query is empty after normalization")
 
+        # Check semantic cache
+        from app.models import SemanticCache
+        import json
+        import math
+        
+        def cosine_similarity(v1: list[float], v2: list[float]) -> float:
+            dot_prod = sum(a * b for a, b in zip(v1, v2))
+            magnitude1 = math.sqrt(sum(a * a for a in v1))
+            magnitude2 = math.sqrt(sum(b * b for b in v2))
+            if magnitude1 == 0 or magnitude2 == 0:
+                return 0.0
+            return dot_prod / (magnitude1 * magnitude2)
+
+        # Generate embedding vector for cache lookup
+        query_vector = embed_query(normalized)
+        if query_vector and not req.document_ids and not req.department and not req.file_type and not req.date_range:
+            cache_entries = db.query(SemanticCache).filter(SemanticCache.role == current_user.role).all()
+            best_match = None
+            best_sim = -1.0
+            for entry in cache_entries:
+                try:
+                    entry_embedding = json.loads(entry.embedding_json)
+                    sim = cosine_similarity(query_vector, entry_embedding)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_match = entry
+                except Exception:
+                    continue
+            
+            if best_match and best_sim >= 0.96:
+                logger.info("Semantic cache HIT (similarity: %s) for query: '%s'", best_sim, req.query)
+                try:
+                    cached_res = json.loads(best_match.response_json)
+                    cached_res["query"] = req.query
+                    return cached_res
+                except Exception:
+                    pass
+
         visible_doc_ids = _get_visible_doc_ids_for_role(current_user.role, db)
         personal_doc_ids = {
             d.id for d in db.query(Document).filter(
@@ -674,9 +712,11 @@ def search(
                     r["text_preview"] = r["text"][:200]
 
         # Cross-Encoder Reranking
-        import os
-        if False:  # Disabled - causes timeout
-            merged_results = _rerank_with_cross_encoder(req.query, merged_results)
+        # Rerank only the top 8 candidates using the lightweight cross-encoder to prevent CPU timeouts
+        rerank_candidates = merged_results[:8]
+        other_candidates = merged_results[8:]
+        reranked = _rerank_with_cross_encoder(req.query, rerank_candidates)
+        merged_results = reranked + other_candidates
         merged_results = merged_results[:RERANK_TOP_K]
         
         top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
@@ -745,7 +785,7 @@ def search(
                 has_answer = has_answer_filtered
             # else: keep original merged_results if filter removed everything
 
-        return {
+        res_payload = {
             "query": req.query,
             "normalized_query": normalized,
             "role": current_user.role,
@@ -753,6 +793,22 @@ def search(
             "has_answer": has_answer,
             "answer": answer,
         }
+
+        # Save to semantic cache
+        if query_vector and answer and not req.document_ids and not req.department and not req.file_type and not req.date_range:
+            try:
+                new_cache = SemanticCache(
+                    query=req.query,
+                    embedding_json=json.dumps(query_vector),
+                    response_json=json.dumps(res_payload),
+                    role=current_user.role
+                )
+                db.add(new_cache)
+                db.commit()
+            except Exception as cache_save_err:
+                logger.warning("Failed to save semantic cache: %s", cache_save_err)
+
+        return res_payload
     except HTTPException:
         raise
     except Exception as e:
