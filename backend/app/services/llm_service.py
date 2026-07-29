@@ -508,6 +508,42 @@ def condense_query(query: str, history: list[dict]) -> str:
             logger.info("Rewrote follow-up query '%s' to standalone query '%s'", query, rewritten)
             return rewritten
     except Exception as e:
-        logger.warning("Failed to condense follow-up query: %s", e)
+        logger.warning("Failed to condense follow-up query via LLM: %s. Using rule-based fallback.", e)
+
+    # Rule-based fallback for query condensation when LLM is unavailable
+    try:
+        query_lower = query.lower().strip()
+        # Common follow-up triggers or short questions
+        follow_up_triggers = [
+            "summarize", "summary", "key points", "points", "elaborate", "explain",
+            "more details", "tell me more", "why", "how", "what else", "relate to this",
+            "show key points"
+        ]
+        is_follow_up = len(query.split()) <= 6 or any(trigger in query_lower for trigger in follow_up_triggers)
+        if is_follow_up:
+            # Find the last user query in history
+            last_user_query = None
+            for entry in reversed(history):
+                if entry.get("role") == "user":
+                    last_user_query = entry.get("content")
+                    break
+            if last_user_query:
+                # Clean punctuation and combine query with key content words of the previous question
+                import re
+                clean_words = []
+                for w in last_user_query.split():
+                    w_clean = re.sub(r'[^\w\s-]', '', w)
+                    if w_clean and w_clean.lower() not in [
+                        "what", "is", "are", "the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "by", "from", "do", "play", "how", "why"
+                    ]:
+                        clean_words.append(w_clean)
+                keywords = " ".join(clean_words[:6]) # extract first few keywords
+                combined = f"{query} {keywords}".strip()
+                logger.info("Rule-based condensed query: '%s'", combined)
+                return combined
+    except Exception as rule_err:
+        logger.warning("Rule-based query condensation also failed: %s", rule_err)
+
     return query
+
 

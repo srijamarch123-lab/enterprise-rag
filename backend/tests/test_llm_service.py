@@ -52,7 +52,26 @@ class LLMServiceTests(unittest.TestCase):
         self.assertIn("Assistant: It is an onboarding guide.", call_args)
         self.assertIn("Follow-up Question: Summarize it", call_args)
 
+    @unittest.mock.patch("app.services.llm_service.LLMService")
+    def test_condense_query_falls_back_to_rule_based(self, mock_llm_class):
+        from app.services.llm_service import condense_query
+        
+        # Make the LLMService mock raise an exception (e.g. quota error)
+        mock_llm_instance = mock_llm_class.return_value
+        mock_llm_instance.chat_completion.side_effect = Exception("OpenAI quota exhausted")
+        
+        history = [
+            {"role": "user", "content": "What role do employees play in remote work?"},
+            {"role": "assistant", "content": "They must maintain information security."},
+        ]
+        
+        result = condense_query("Show the key points", history)
+        
+        # The keywords should be combined with the question
+        self.assertEqual(result, "Show the key points role employees remote work")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
