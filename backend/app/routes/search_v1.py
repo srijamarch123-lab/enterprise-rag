@@ -724,6 +724,19 @@ def search(
         top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
         has_answer = top_score >= CONFIDENCE_THRESHOLD
 
+        logger.warning(f"RAG DEBUG | top_score={top_score} threshold={CONFIDENCE_THRESHOLD} has_answer={has_answer}")
+        logger.warning(f"RAG DEBUG | retrieved_chunks={len(merged_results)}")
+
+
+        logger.info("========== RAG DEBUG ==========")
+        logger.info("Top score: %s", top_score)
+        logger.info("Threshold: %s", CONFIDENCE_THRESHOLD)
+        logger.info("Has answer: %s", has_answer)
+        logger.info("Retrieved chunks: %s", len(merged_results))
+        for r in merged_results:
+            logger.info("%s | %s", r.get("filename"), r.get("combined_score"))
+        logger.info("===============================")
+
         if not merged_results:
             # Fall back to visible chunks from the database when vector retrieval yields nothing.
             fallback_chunks = (
