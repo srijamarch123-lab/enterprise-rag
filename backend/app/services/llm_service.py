@@ -144,7 +144,13 @@ class LLMService:
         try:
             return _groq_chat(messages, max_tokens=max_tokens)
         except Exception as e:
-            logger.error("Groq also failed: %s", e)
+            logger.warning("Groq also failed, falling back to Gemini: %s", e)
+
+        # Fallback to Gemini
+        try:
+            return _gemini_chat(messages, max_tokens=max_tokens)
+        except Exception as e:
+            logger.error("Gemini also failed: %s", e)
             raise
 
     def stream_chat_completion(self, messages: List[Any], max_tokens: int = 1024):
@@ -174,9 +180,25 @@ class LLMService:
         # Fallback to Groq streaming if no tokens have been sent yet
         if not tokens_yielded:
             try:
-                yield from _groq_stream(messages, max_tokens=max_tokens)
+                for token in _groq_stream(messages, max_tokens=max_tokens):
+                    tokens_yielded = True
+                    yield token
+                return
             except Exception as e:
-                logger.error("Groq stream also failed: %s", e)
+                if tokens_yielded:
+                    logger.error("Groq stream failed mid-flight after tokens were yielded: %s", e)
+                    return
+                logger.warning("Groq stream failed before start, falling back to Gemini: %s", e)
+
+        # Fallback to Gemini streaming if no tokens have been sent yet
+        if not tokens_yielded:
+            try:
+                for token in _gemini_stream(messages, max_tokens=max_tokens):
+                    tokens_yielded = True
+                    yield token
+                return
+            except Exception as e:
+                logger.error("Gemini stream also failed: %s", e)
                 raise
 
 
@@ -559,5 +581,110 @@ def condense_query(query: str, history: list[dict]) -> str:
         logger.warning("Rule-based query condensation also failed: %s", rule_err)
 
     return query
+
+
+def _map_messages_to_gemini(messages: List[Any]) -> tuple[Optional[dict], list[dict]]:
+    system_instruction = None
+    contents = []
+    
+    for msg in messages:
+        role = msg.get("role")
+        content = msg.get("content") or ""
+        
+        if role == "system":
+            system_instruction = {
+                "parts": [{"text": content}]
+            }
+        elif role == "user":
+            contents.append({
+                "role": "user",
+                "parts": [{"text": content}]
+            })
+        elif role == "assistant" or role == "model":
+            contents.append({
+                "role": "model",
+                "parts": [{"text": content}]
+            })
+        elif role == "tool":
+            contents.append({
+                "role": "user",
+                "parts": [{"text": f"Tool output: {content}"}]
+            })
+            
+    return system_instruction, contents
+
+
+def _gemini_chat(messages: List[Any], max_tokens: int = 1024) -> str:
+    key = settings.gemini_api_key or os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("Gemini API key not configured")
+        
+    system_inst, contents = _map_messages_to_gemini(messages)
+    
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": max_tokens
+        }
+    }
+    if system_inst:
+        payload["systemInstruction"] = system_inst
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    
+    import requests
+    response = requests.post(url, json=payload, timeout=30)
+    response.raise_for_status()
+    
+    data = response.json()
+    try:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        return text.strip() if text else ""
+    except (KeyError, IndexError):
+        logger.warning("Unexpected Gemini response format: %s", data)
+        return ""
+
+
+def _gemini_stream(messages: List[Any], max_tokens: int = 1024):
+    key = settings.gemini_api_key or os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("Gemini API key not configured")
+        
+    system_inst, contents = _map_messages_to_gemini(messages)
+    
+    payload = {
+        "contents": contents,
+        "generationConfig": {
+            "temperature": 0.0,
+            "maxOutputTokens": max_tokens
+        }
+    }
+    if system_inst:
+        payload["systemInstruction"] = system_inst
+        
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key={key}"
+    
+    import requests
+    import json
+    
+    response = requests.post(url, json=payload, stream=True, timeout=30)
+    response.raise_for_status()
+    
+    for line in response.iter_lines():
+        if not line:
+            continue
+        line_str = line.decode("utf-8").strip()
+        if line_str.startswith("data:"):
+            data_json = line_str[5:].strip()
+            if not data_json:
+                continue
+            try:
+                chunk = json.loads(data_json)
+                text = chunk["candidates"][0]["content"]["parts"][0]["text"]
+                if text:
+                    yield text
+            except Exception:
+                pass
 
 

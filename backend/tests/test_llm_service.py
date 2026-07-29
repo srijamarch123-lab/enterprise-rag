@@ -70,8 +70,30 @@ class LLMServiceTests(unittest.TestCase):
         # The keywords should be combined with the question
         self.assertEqual(result, "Show the key points role employees remote work")
 
+    @unittest.mock.patch("app.services.llm_service._gemini_chat")
+    @unittest.mock.patch("app.services.llm_service._groq_chat")
+    def test_chat_completion_falls_back_to_gemini_when_groq_fails(self, mock_groq_chat, mock_gemini_chat):
+        from app.services.llm_service import LLMService
+        
+        # Setup Groq to fail
+        mock_groq_chat.side_effect = Exception("Groq rate limit")
+        
+        # Setup Gemini to succeed
+        mock_gemini_chat.return_value = "Answer from Gemini"
+        
+        llm = LLMService()
+        # Disable OpenAI to trigger fallback chain
+        llm._openai_client = None
+        
+        res = llm.chat_completion(messages=[{"role": "user", "content": "test"}])
+        
+        self.assertEqual(res, "Answer from Gemini")
+        mock_groq_chat.assert_called_once()
+        mock_gemini_chat.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

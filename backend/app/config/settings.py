@@ -8,9 +8,10 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./rag_demo.db"
 
-    # OpenAI
+    # OpenAI / LLMs
     openai_api_key: str = ""
     groq_api_key: str = ""
+    gemini_api_key: str = ""
 
     # Qdrant
     qdrant_url: str = ""
