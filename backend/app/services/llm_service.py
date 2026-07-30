@@ -310,7 +310,16 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
     max_bullets = 8
 
     # Extract sentences with source attribution
-    query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2]
+    stop_words = {
+        "what", "how", "why", "who", "when", "where", "which", "whose", "whom",
+        "is", "are", "was", "were", "be", "been", "being",
+        "the", "a", "an", "and", "or", "but", "if", "then", "else",
+        "of", "in", "to", "for", "with", "on", "at", "by", "from", "about", "as", "into", "like", "through", "after", "over", "between", "out", "against",
+        "do", "does", "did", "done", "doing", "have", "has", "had", "having",
+        "this", "that", "these", "those",
+        "tell", "me", "more", "please", "can", "you", "give", "list", "get", "view", "find", "show", "describe", "explain", "summarize", "elaborate"
+    }
+    query_words = [w.strip() for w in query_lower.split() if len(w.strip()) > 2 and w.strip() not in stop_words]
     bullet_points: list[str] = []
     used_sources: list[str] = []
 
@@ -357,6 +366,65 @@ def build_fallback_answer(query: str, chunks: list[dict[str, Any]]) -> str:
         if len(bullet_points) >= max_bullets:
             break
 
+    # Second pass: if less than 5 bullet points are gathered, fill in using other sentences from chunks
+    if len(bullet_points) < 5:
+        for chunk in chunks:
+            text = (chunk.get("text") or chunk.get("text_preview") or "").strip()
+            fname = chunk.get("filename") or chunk.get("doc_name") or "Unknown"
+            if not text:
+                continue
+            import re
+            sentences = re.split(r'(?<=[.!?])\s+', text)
+            for sent in sentences:
+                sent = sent.strip()
+                if len(sent) >= 20 and len(sent) <= 300:
+                    normalized = " ".join(sent.lower().split())
+                    if not any(normalized in bp.lower() for bp in bullet_points):
+                        bullet_points.append(f"- {sent} (Source: {fname})")
+                        if fname not in used_sources:
+                            used_sources.append(fname)
+                        if len(bullet_points) >= 5:
+                            break
+            if len(bullet_points) >= 5:
+                break
+
+    # Third pass: if we STILL have less than 5 bullet points, query local database for any active chunks
+    if len(bullet_points) < 5:
+        try:
+            from app.database import SessionLocal
+            from app.models import Chunk, Document
+            db_s = SessionLocal()
+            try:
+                fallback_chunks = (
+                    db_s.query(Chunk)
+                    .join(Document)
+                    .filter(Document.is_active == True)
+                    .order_by(Chunk.id.desc())
+                    .limit(15)
+                    .all()
+                )
+                for chunk in fallback_chunks:
+                    text = chunk.text or ""
+                    fname = chunk.document.original_filename if chunk.document else "Unknown"
+                    import re
+                    sentences = re.split(r'(?<=[.!?])\s+', text)
+                    for sent in sentences:
+                        sent = sent.strip()
+                        if len(sent) >= 20 and len(sent) <= 300:
+                            normalized = " ".join(sent.lower().split())
+                            if not any(normalized in bp.lower() for bp in bullet_points):
+                                bullet_points.append(f"- {sent} (Source: {fname})")
+                                if fname not in used_sources:
+                                    used_sources.append(fname)
+                                if len(bullet_points) >= 5:
+                                    break
+                    if len(bullet_points) >= 5:
+                        break
+            finally:
+                db_s.close()
+        except Exception:
+            pass
+
     if not bullet_points:
         return "I could not find this information in the available documents."
 
@@ -378,7 +446,7 @@ def build_chat_prompt(
     history_block = ""
     if history_messages:
         history_lines = []
-        for entry in history_messages[-6:]:
+        for entry in history_messages[-10:]:
             role = (entry.get("role") or "user").strip().lower()
             content = (entry.get("content") or "").strip()
             if content:
@@ -534,7 +602,7 @@ def condense_query(query: str, history: list[dict]) -> str:
         
         # Build clean history summary text
         history_text = ""
-        for entry in history[-5:]:  # look at last 5 messages
+        for entry in history[-10:]:  # look at last 10 messages (up to 5 turns)
             role = (entry.get("role") or "user").strip().lower()
             content = (entry.get("content") or "").strip()
             if content:
@@ -565,27 +633,54 @@ def condense_query(query: str, history: list[dict]) -> str:
         follow_up_triggers = [
             "summarize", "summary", "key points", "points", "elaborate", "explain",
             "more details", "tell me more", "why", "how", "what else", "relate to this",
-            "show key points"
+            "show key points", "owner", "timeline", "date", "schedule"
         ]
         is_follow_up = len(query.split()) <= 6 or any(trigger in query_lower for trigger in follow_up_triggers)
         if is_follow_up:
-            # Find the last user query in history
-            last_user_query = None
-            for entry in reversed(history):
-                if entry.get("role") == "user":
-                    last_user_query = entry.get("content")
-                    break
-            if last_user_query:
-                # Clean punctuation and combine query with key content words of the previous question
+            # Find all user queries in history
+            user_queries = [entry.get("content") for entry in history if entry.get("role") == "user"]
+            if user_queries:
+                # Find the substantive words of the current query
+                current_substantive = [w for w in query.split() if w.lower() not in [
+                    "what", "is", "are", "the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "by", "from", "do", "how", "why", "who", "when", "where", "which",
+                    "summarize", "elaborate", "explain", "describe", "show", "tell", "me", "more", "about", "please", "can", "you", "give", "list", "get", "view", "find",
+                    "this", "that", "these", "those", "key", "points", "detail", "details", "info", "information", "policy", "policies", "document", "documents"
+                ]]
+                
+                # If current query is substantive, don't pollute it
+                if len(current_substantive) >= 2:
+                    logger.info("Query has its own topic keywords, not condensing: '%s'", query)
+                    return query
+
+                # Find the most recent query that had substantive content words
+                target_query = None
+                for prev_q in reversed(user_queries):
+                    words = [w for w in prev_q.split() if w.lower() not in [
+                        "what", "is", "are", "the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "by", "from", "do", "play", "how", "why", "who", "when", "where", "which",
+                        "summarize", "elaborate", "explain", "describe", "show", "tell", "me", "more", "about", "please", "can", "you", "give", "list", "get", "view", "find",
+                        "this", "that", "these", "those", "owner", "timeline", "schedule", "date"
+                    ]]
+                    if len(words) >= 1:
+                        target_query = prev_q
+                        break
+                
+                if not target_query:
+                    target_query = user_queries[-1]
+                    
+                # Extract clean words from target query
                 import re
                 clean_words = []
-                for w in last_user_query.split():
+                for w in target_query.split():
                     w_clean = re.sub(r'[^\w\s-]', '', w)
                     if w_clean and w_clean.lower() not in [
-                        "what", "is", "are", "the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "by", "from", "do", "play", "how", "why"
+                        "what", "is", "are", "the", "a", "an", "of", "in", "to", "for", "with", "on", "at", "by", "from", "do", "play", "how", "why", "who", "when", "where", "which",
+                        "summarize", "elaborate", "explain", "describe", "show", "tell", "me", "more", "about", "please", "can", "you", "give", "list", "get", "view", "find",
+                        "this", "that", "these", "those"
                     ]:
-                        clean_words.append(w_clean)
-                keywords = " ".join(clean_words[:6]) # extract first few keywords
+                        if w_clean.lower() not in [cw.lower() for cw in clean_words]:
+                            clean_words.append(w_clean)
+                
+                keywords = " ".join(clean_words[:5])
                 combined = f"{query} {keywords}".strip()
                 logger.info("Rule-based condensed query: '%s'", combined)
                 return combined

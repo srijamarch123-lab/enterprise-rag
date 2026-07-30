@@ -323,7 +323,7 @@ def stream_chat(
     ]
 
     # Implement sliding history window (allow up to 4000 tokens for follow-ups)
-    history_for_prompt = truncate_chat_history(history_for_prompt, max_tokens=800)
+    history_for_prompt = truncate_chat_history(history_for_prompt, max_tokens=3000)
 
     # Condense search query using history to make follow-up questions context-aware
     from app.services.llm_service import condense_query
@@ -489,8 +489,13 @@ def stream_chat(
                 break
 
     def event_stream():
+        from app.database import SessionLocal
+        db_session = SessionLocal()
         assistant_chunks: list[str] = []
+        local_session = None
         try:
+            local_session = db_session.query(ChatSession).filter(ChatSession.id == session_id).first()
+
             openai_success = False
             if client:
                 try:
@@ -523,12 +528,12 @@ def stream_chat(
 
             filtered_results, has_answer = parse_and_filter_results(final_text, agent_chunks)
 
-            # Generate follow-up suggestions using the LLM based on RAG context
+            # Generate follow-up suggestions using the LLM based RAG context
             context_text = assemble_context(agent_chunks)
             suggestions = generate_suggested_questions(req.content, final_text, context_text)
 
             assistant_message = ChatMessage(
-                session_id=session.id,
+                session_id=session_id,
                 role="assistant",
                 content=final_text,
                 message_metadata={
@@ -538,25 +543,29 @@ def stream_chat(
                     "suggestions": suggestions,
                 },
             )
-            db.add(assistant_message)
-            session.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).replace(tzinfo=None)
-            session.title = session.title if session.title != "New chat" else (req.content.strip()[:40] or session.title)
-            db.commit()
+            db_session.add(assistant_message)
+            if local_session:
+                local_session.updated_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).replace(tzinfo=None)
+                local_session.title = local_session.title if local_session.title != "New chat" else (req.content.strip()[:40] or local_session.title)
+            db_session.commit()
+            db_session.refresh(assistant_message)
+            
             yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': filtered_results, 'has_answer': has_answer, 'suggestions': suggestions})}\n\n"
         except Exception as exc:  # pragma: no cover - defensive fallback
             import logging
             logging.getLogger(__name__).error("Stream error: %s", exc, exc_info=True)
             try:
-                db.rollback()
+                db_session.rollback()
             except Exception:
                 pass
+                
             final_text = build_fallback_answer(req.content, agent_chunks)
             suggestions = ["Summarize the sources", "Show the key points", "What other documents relate to this?"]
             
             filtered_results, has_answer = parse_and_filter_results(final_text, agent_chunks)
             
             assistant_message = ChatMessage(
-                session_id=session.id,
+                session_id=session_id,
                 role="assistant",
                 content=final_text,
                 message_metadata={
@@ -566,9 +575,13 @@ def stream_chat(
                     "suggestions": suggestions,
                 }
             )
-            db.add(assistant_message)
-            db.commit()
+            db_session.add(assistant_message)
+            db_session.commit()
+            db_session.refresh(assistant_message)
+            
             yield f"data: {__import__('json').dumps({'user_message_id': user_message.id, 'message_id': assistant_message.id, 'answer': final_text, 'results': filtered_results, 'has_answer': has_answer, 'suggestions': suggestions})}\n\n"
+        finally:
+            db_session.close()
 
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

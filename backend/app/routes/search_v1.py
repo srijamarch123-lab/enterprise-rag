@@ -37,7 +37,7 @@ def _get_reranker():
             import os
             cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
             os.makedirs(cache_dir, exist_ok=True)
-            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-2-v2", cache_dir=cache_dir)
+            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2", cache_dir=cache_dir)
         except Exception as e:
             logger.warning("Failed to initialize TextCrossEncoder: %s", e)
     return _reranker
@@ -593,7 +593,7 @@ def search(
             req.file_type,
             req.date_range,
             user_id=current_user.id,
-            document_ids=list(visible_doc_ids) if req.document_ids else None
+            document_ids=list(visible_doc_ids)
         )
         top_k = req.limit
 
@@ -719,7 +719,7 @@ def search(
         other_candidates = merged_results[8:]
         reranked = _rerank_with_cross_encoder(req.query, rerank_candidates)
         merged_results = reranked + other_candidates
-        merged_results = merged_results[:RERANK_TOP_K]
+        merged_results = merged_results[:req.limit]
         
         top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
         has_answer = top_score >= CONFIDENCE_THRESHOLD
