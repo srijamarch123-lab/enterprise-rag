@@ -327,7 +327,10 @@ def stream_chat(
 
     # Condense search query using history to make follow-up questions context-aware
     from app.services.llm_service import condense_query
-    condensed_query = condense_query(req.content.strip(), history_for_prompt)
+    try:
+        condensed_query = condense_query(req.content.strip(), history_for_prompt) if history_for_prompt else req.content.strip()
+    except Exception:
+        condensed_query = req.content.strip()
 
     # Pre-run search for fallback (used if LLM agent fails or tools are not supported)
     search_request = ChatRequest(
