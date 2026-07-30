@@ -12,7 +12,7 @@ from app.services.embedder import _get_qdrant
 from app.services.query_embedder import embed_query
 from app.services.query_processor import normalize_query
 from app.services.redis_service import get_redis_client
-from app.services.llm_service import build_answer, build_answer_stream, parse_and_filter_results, condense_query
+from app.services.llm_service import build_answer, build_answer_stream, parse_and_filter_results, condense_query, generate_suggested_questions, assemble_context
 from app.services.rbac_filter import build_rbac_filter
 from app.config.settings import get_settings
 
@@ -319,6 +319,27 @@ def chat(
             except Exception as e:
                 logger.warning(f"Failed to write to RAG cache: {e}")
 
+        # Prepare bullet list from answer
+        bullets = [line.strip() for line in answer.splitlines() if line.strip().startswith('-')]
+        # Ensure at least 5 bullet points – fallback handled in LLM service already
+        if len(bullets) < 5:
+            # If answer is not already bullet‑formatted, split into sentences and take first few
+            import re
+            sentences = re.split(r'(?<=[.!?])\s+', answer)
+            bullets = [f"- {s.strip()}" for s in sentences if s.strip()][:5]
+        # Build context string for suggested questions (use assembled context from chunks)
+        context_text = assemble_context(merged_results)
+        follow_up_questions = generate_suggested_questions(req.query, answer, context_text)
+        response_payload = {
+            "query": req.query,
+            "normalized_query": normalized,
+            "role": current_user.role,
+            "answer": answer,
+            "bullets": bullets,
+            "follow_up_questions": follow_up_questions,
+            "results": merged_results,
+            "has_answer": has_answer,
+        }
         return response_payload
     except HTTPException:
         raise

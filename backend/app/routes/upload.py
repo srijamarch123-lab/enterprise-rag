@@ -52,19 +52,14 @@ def _validate_file(file: UploadFile):
 def _save_file(file: UploadFile, ext: str) -> tuple[str, str, int, str]:
     """Save uploaded file to disk. Returns (saved_filename, file_path, size, actual_ext)."""
     if ext in ("png", "jpg", "jpeg"):
-        try:
-            from PIL import Image
-            file.file.seek(0)
-            img = Image.open(file.file)
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGB")
-            saved_name = f"{uuid.uuid4().hex}.webp"
-            dest = UPLOAD_DIR / saved_name
-            img.save(dest, format="WEBP", quality=80)
-            size = dest.stat().st_size
-            return saved_name, str(dest), size, "webp"
-        except Exception:
-            file.file.seek(0)
+        # Save image with original extension to allow extractor to process it correctly
+        saved_name = f"{uuid.uuid4().hex}.{ext}"
+        dest = UPLOAD_DIR / saved_name
+        file.file.seek(0)
+        with dest.open("wb") as out_f:
+            shutil.copyfileobj(file.file, out_f)
+        size = dest.stat().st_size
+        return saved_name, str(dest), size, ext
 
     saved_name = f"{uuid.uuid4().hex}.{ext}"
     dest = UPLOAD_DIR / saved_name
