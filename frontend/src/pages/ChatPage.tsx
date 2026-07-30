@@ -735,7 +735,7 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
                             </div>
                           )
                         })()}
-                        <div className="chat-page-message-answer-plain" style={{ color: isDark ? "#f0f0f0" : "#2B2A27" }}>
+                        <div className="chat-page-message-answer-plain" style={{ color: isDark ? "#f0f0f0" : "#2B2A27", wordBreak: "break-word", overflowWrap: "break-word", whiteSpace: "pre-wrap" }}>
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{(m.answer || m.content || "").replace(/(?:\n|^)\s*Sources:\s*[\s\S]*$/i, "").trim()}</ReactMarkdown>
                         </div>
                         {/* Source chips - clean display of cited sources */}
