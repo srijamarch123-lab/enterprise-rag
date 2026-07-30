@@ -675,7 +675,7 @@ def _gemini_stream(messages: List[Any], max_tokens: int = 1024):
     if system_inst:
         payload["systemInstruction"] = system_inst
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse&key={key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:streamGenerateContent?alt=sse&key={key}"
     
     import requests
     import json
