@@ -497,6 +497,19 @@ def _merge_results(
 
     merged.sort(key=lambda x: x.get("combined_score", 0), reverse=True)
 
+    # Per-document cap: prevent one document from crowding out others in the
+    # candidate pool before the top_k cut. Preserves score order.
+    MAX_CHUNKS_PER_DOCUMENT = 3
+    doc_counts = {}
+    capped = []
+    for m in merged:
+        doc_id = m.get("document_id")
+        count = doc_counts.get(doc_id, 0)
+        if count < MAX_CHUNKS_PER_DOCUMENT:
+            capped.append(m)
+            doc_counts[doc_id] = count + 1
+    merged = capped
+
     results = merged[:top_k]
 
     top_score = results[0].get("combined_score", 0) if results else 0

@@ -738,7 +738,7 @@ def _gemini_chat(messages: List[Any], max_tokens: int = 1024) -> str:
     if system_inst:
         payload["systemInstruction"] = system_inst
         
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={key}"
     
     import requests
     response = requests.post(url, json=payload, timeout=30)
