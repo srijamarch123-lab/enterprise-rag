@@ -73,6 +73,7 @@ def _rerank_with_cross_encoder(query: str, merged_results: List[Dict[str, Any]])
     return merged_results
 
 def expand_query(query: str) -> List[str]:
+    return [query]  # TEMP: LLM expansion disabled -- was burning quota + causing topic drift
     try:
         from app.services.llm_service import LLMService
         llm = LLMService(temperature=0.3)
