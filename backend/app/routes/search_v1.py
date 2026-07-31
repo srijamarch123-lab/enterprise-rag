@@ -1,3 +1,4 @@
+import threading
 from typing import Optional, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,18 +29,21 @@ RERANK_TOP_K = 5
 CONFIDENCE_THRESHOLD = 0.55
 
 _reranker = None
+_reranker_lock = threading.Lock()
 
 def _get_reranker():
     global _reranker
     if _reranker is None:
-        try:
-            from fastembed.rerank.cross_encoder import TextCrossEncoder
-            import os
-            cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
-            os.makedirs(cache_dir, exist_ok=True)
-            _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2", cache_dir=cache_dir)
-        except Exception as e:
-            logger.warning("Failed to initialize TextCrossEncoder: %s", e)
+        with _reranker_lock:
+            if _reranker is None:
+                try:
+                    from fastembed.rerank.cross_encoder import TextCrossEncoder
+                    import os
+                    cache_dir = os.environ.get("FASTEMBED_CACHE_PATH") or "./fastembed_cache"
+                    os.makedirs(cache_dir, exist_ok=True)
+                    _reranker = TextCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2", cache_dir=cache_dir)
+                except Exception as e:
+                    logger.warning("Failed to initialize TextCrossEncoder: %s", e)
     return _reranker
 
 
@@ -721,6 +725,14 @@ def search(
         reranked = _rerank_with_cross_encoder(req.query, rerank_candidates)
         merged_results = reranked + other_candidates
         merged_results = merged_results[:req.limit]
+
+        # Relevance score-gap cutoff: drop chunks that fall far below the top result
+        # so off-topic documents don't reach the LLM. Always keeps at least 1 chunk.
+        SCORE_GAP_MARGIN = 0.15
+        if merged_results:
+            top_for_cutoff = merged_results[0].get("combined_score", 0)
+            filtered = [r for r in merged_results if r.get("combined_score", 0) >= top_for_cutoff - SCORE_GAP_MARGIN]
+            merged_results = filtered if filtered else merged_results[:1]
         
         top_score = merged_results[0].get("combined_score", 0) if merged_results else 0
         has_answer = top_score >= CONFIDENCE_THRESHOLD
