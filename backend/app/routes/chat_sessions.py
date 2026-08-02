@@ -291,9 +291,11 @@ def stream_chat(
     db.refresh(user_message)
     _user_message_id = user_message.id
 
+    _HISTORY_MAX_MESSAGES = 4
+    _HISTORY_MAX_CHARS_PER_MESSAGE = 300
     history_messages = [
-        {"role": message.role, "content": message.content or ""}
-        for message in session.messages
+        {"role": message.role, "content": (message.content or "")[:_HISTORY_MAX_CHARS_PER_MESSAGE]}
+        for message in session.messages[-_HISTORY_MAX_MESSAGES:]
     ]
 
     # 1. Define tools for OpenAI/Groq function calling
