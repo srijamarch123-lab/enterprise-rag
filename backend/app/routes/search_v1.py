@@ -218,29 +218,59 @@ except ImportError:  # pragma: no cover
     BM25Okapi = None
 
 
-def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
-    """Run a lightweight keyword search over chunks from visible documents."""
-    if not visible_doc_ids:
-        return []
+_bm25_cache: dict = {}
+_BM25_CACHE_TTL_SECONDS = 60
+
+def _get_bm25_index(visible_doc_ids: set[int], db):
+    """Return a cached (bm25, chunks) pair for this visible_doc_ids set, rebuilding
+    only if stale (TTL expired or chunk count changed) to avoid rebuilding the full
+    BM25 index -- an expensive, memory-heavy operation -- on every single request."""
+    import time
+    cache_key = frozenset(visible_doc_ids)
+    now = time.time()
+    cached = _bm25_cache.get(cache_key)
+
+    current_count = (
+        db.query(Chunk)
+        .filter(Chunk.document_id.in_(visible_doc_ids))
+        .count()
+    )
+
+    if cached is not None:
+        cached_bm25, cached_chunks, cached_time, cached_count = cached
+        if (now - cached_time) < _BM25_CACHE_TTL_SECONDS and cached_count == current_count:
+            return cached_bm25, cached_chunks
 
     chunks = (
         db.query(Chunk)
-        .filter(
-            Chunk.document_id.in_(visible_doc_ids),
-        )
+        .filter(Chunk.document_id.in_(visible_doc_ids))
         .all()
     )
-
     if not chunks:
+        _bm25_cache[cache_key] = (None, [], now, current_count)
+        return None, []
+
+    corpus = [c.text.lower().split() for c in chunks]
+    bm25 = BM25Okapi(corpus) if BM25Okapi is not None else None
+    _bm25_cache[cache_key] = (bm25, chunks, now, current_count)
+    return bm25, chunks
+
+
+def _bm25_search(query: str, visible_doc_ids: set[int], db, top_k: int = 10) -> List[Dict[str, Any]]:
+    """Run a lightweight keyword search over chunks from visible documents."""
+    if not visible_doc_ids:
         return []
 
     query_tokens = {token for token in query.lower().split() if token}
     if not query_tokens:
         return []
 
-    if BM25Okapi is not None:
-        corpus = [c.text.lower().split() for c in chunks]
-        bm25 = BM25Okapi(corpus)
+    bm25, chunks = _get_bm25_index(visible_doc_ids, db)
+
+    if not chunks:
+        return []
+
+    if bm25 is not None:
         
         # Filter out common stop words and search query triggers to make keyword match highly specific
         stop_words = {
