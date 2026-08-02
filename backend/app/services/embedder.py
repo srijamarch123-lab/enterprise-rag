@@ -21,6 +21,11 @@ _qdrant_client = None
 def _get_qdrant(force_reconnect: bool = False) -> QdrantClient:
     global _qdrant_client
     if _qdrant_client is None or force_reconnect:
+        if _qdrant_client is not None:
+            try:
+                _qdrant_client.close()
+            except Exception:
+                pass
         _qdrant_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
     return _qdrant_client
 
