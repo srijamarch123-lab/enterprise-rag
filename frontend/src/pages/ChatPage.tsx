@@ -252,7 +252,11 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
     const controller = new AbortController()
     abortControllerRef.current = controller
 
-    try {
+    const assistantMsgTempId = crypto.randomUUID()
+    const assistantMsgInit: ChatMessage = { id: assistantMsgTempId, role: 'assistant', answer: '', results: [], hasAnswer: true, suggestions: [] }
+    setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsgInit] } : c)))
+
+    const attemptStream = async (): Promise<void> => {
       const baseUrl = import.meta.env.VITE_API_URL || ''
       const response = await fetch(`${baseUrl}/api/chat/sessions/${currentActiveId}/messages/stream`, {
         method: 'POST',
@@ -278,10 +282,6 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
       let suggestions: string[] = []
       let actualUserDbId: number | string | undefined = undefined
       let actualDbId: number | string | undefined = undefined
-
-      const assistantMsgTempId = crypto.randomUUID()
-      const assistantMsg: ChatMessage = { id: assistantMsgTempId, role: 'assistant', answer: '', results: [], hasAnswer: true, suggestions: [] }
-      setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
 
       let buffer = ''
       while (true) {
@@ -332,12 +332,22 @@ export default function ChatPage({ role, onLogout }: ChatPageProps) {
           }
         }
       }
+    }
+
+    try {
+      try {
+        await attemptStream()
+      } catch (err: any) {
+        if (err.name === 'AbortError') throw err
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+        setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: c.messages.map((m) => m.id === assistantMsgTempId ? { ...m, answer: '', results: [], hasAnswer: true, suggestions: [] } : m) } : c)))
+        await attemptStream()
+      }
     } catch (err: any) {
       if (err.name === 'AbortError') {
         console.log('Stream aborted')
       } else {
-        const assistantMsg: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', error: err.response?.data?.detail || err.message || 'Chat failed' }
-        setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: [...c.messages, assistantMsg] } : c)))
+        setConversations((prev) => prev.map((c) => (c.id === currentActiveId ? { ...c, messages: c.messages.map((m) => m.id === assistantMsgTempId ? { ...m, error: err.response?.data?.detail || err.message || 'Chat failed' } : m) } : c)))
       }
     } finally {
       setLoading(false)
