@@ -5,10 +5,11 @@ const api = axios.create({
   withCredentials: true,
 })
 
-// Add error interceptor to handle network and server errors
+// Add error interceptor to handle network and server errors with cold-start retry
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const config = error.config
     if (error.response) {
       console.error(`API Error [${error.response.status}]:`, error.response.data)
       if (error.response.status === 401) {
@@ -17,6 +18,11 @@ api.interceptors.response.use(
           window.location.href = '/login'
         }
       }
+    } else if (error.request && config && !config._retry && config.method === 'get') {
+      config._retry = true
+      console.warn("Network error during potential cold start, retrying request in 1.5s...")
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      return api(config)
     } else if (error.request) {
       console.error("Network Error: No response from server", error.request)
     } else {
