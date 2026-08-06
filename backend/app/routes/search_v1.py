@@ -78,6 +78,39 @@ def _rerank_with_cross_encoder(query: str, merged_results: List[Dict[str, Any]])
 
 def expand_query(query: str) -> List[str]:
     return [query]  # TEMP: LLM expansion disabled -- was burning quota + causing topic drift
+
+def decompose_query(query: str) -> List[str]:
+    """Detect compound comparison queries ("X vs Y", "difference between X and Y",
+    "compare X and Y") and split into separate sub-topic queries so each topic
+    gets its own retrieval pass instead of one blended embedding vector.
+    Returns [query] unchanged if no compound pattern is detected -- safe no-op
+    for all normal, single-topic queries."""
+    import re
+    q = query.strip()
+    patterns = [
+        r"difference between\s+(.+?)\s+and\s+(.+?)\??$",
+        r"(.+?)\s+vs\.?\s+(.+?)\??$",
+        r"(.+?)\s+versus\s+(.+?)\??$",
+        r"compare\s+(.+?)\s+and\s+(.+?)\??$",
+        r"compare\s+(.+?)\s+with\s+(.+?)\??$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, q, re.IGNORECASE)
+        if match:
+            topic_a = match.group(1).strip(" ?.")
+            topic_b = match.group(2).strip(" ?.")
+            if topic_a and topic_b and topic_a.lower() != topic_b.lower():
+                result = [query, topic_a, topic_b]
+                seen = set()
+                deduped = []
+                for r in result:
+                    key = r.lower().strip()
+                    if key and key not in seen:
+                        seen.add(key)
+                        deduped.append(r)
+                return deduped
+    return [query]
+
     try:
         from app.services.llm_service import LLMService
         llm = LLMService(temperature=0.3)
@@ -602,8 +635,11 @@ def search(
         else:
             visible_doc_ids = allowed_doc_ids
 
-        # Query Expansion
-        expanded_queries = expand_query(req.query)
+        # Query decomposition: for compound "X vs Y" / "difference between X and Y"
+        # questions, retrieve each sub-topic separately so one blended embedding
+        # doesn't let a single topic dominate the candidate pool. Falls back to
+        # the original single query unchanged if no compound pattern is detected.
+        expanded_queries = decompose_query(req.query)
 
         query_filter = _make_filter(
             current_user.role,
