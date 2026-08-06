@@ -28,6 +28,16 @@ from app.routes.personal_drive import router as personal_drive_router
 
 settings = get_settings()
 
+import asyncio
+
+async def _init_qdrant_bg():
+    try:
+        from app.services.embedder import _get_qdrant, ensure_collection
+        await asyncio.to_thread(ensure_collection, _get_qdrant())
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Qdrant auto-provisioning skipped/failed: %s", exc)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -37,12 +47,7 @@ async def lifespan(app: FastAPI):
     create_drive_connections_table()
     run_migrations()
     reset_stuck_documents()
-    try:
-        from app.services.embedder import _get_qdrant, ensure_collection
-        ensure_collection(_get_qdrant())
-    except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("Qdrant auto-provisioning skipped/failed: %s", exc)
+    asyncio.create_task(_init_qdrant_bg())
     yield
 
 app = FastAPI(

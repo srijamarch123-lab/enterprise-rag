@@ -1,14 +1,19 @@
-# Python
+# Python & Virtual Environments
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
+venvsource/
+**/venv/
+**/.venv/
+**/venvsource/
 *.egg-info/
 dist/
 build/
+**/.pytest_cache/
 
-# Environment
+# Environment & Secrets
 .env
 *.env.local
 credentials.json
@@ -16,10 +21,11 @@ credentials.json
 # DB & uploads
 backend/rag_demo.db
 backend/uploads/
+uploads/
 
-# Node
-frontend/node_modules/
-frontend/dist/
+# Node & Frontend
+**/node_modules/
+**/dist/
 
 # Editor
 .vscode/
@@ -31,7 +37,5 @@ frontend/dist/
 Thumbs.db
 
 # fastembed cache
-fastembed_cache/
-backend/fastembed_cache/
+**/fastembed_cache/
 
-venvsource/
